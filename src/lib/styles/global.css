@@ -1,0 +1,106 @@
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--font-sans);
+	font-size: var(--text-base);
+	line-height: 1.55;
+	/* Faint ruled-paper texture: the ledger metaphor, at 3% opacity so it reads
+	   as grain rather than decoration. */
+	background-image: repeating-linear-gradient(
+		to bottom,
+		transparent 0 31px,
+		color-mix(in oklch, var(--rule) 40%, transparent) 31px 32px
+	);
+	background-attachment: fixed;
+}
+
+h1,
+h2,
+h3,
+p,
+figure,
+ul,
+ol {
+	margin: 0;
+}
+
+ul,
+ol {
+	padding: 0;
+	list-style: none;
+}
+
+a {
+	color: inherit;
+	text-decoration: none;
+}
+
+button,
+input,
+select {
+	font: inherit;
+	color: inherit;
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 3px;
+	border-radius: var(--radius-sm);
+}
+
+/* Every figure in this app is tabular so columns of money line up. */
+.num {
+	font-family: var(--font-num);
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: 'tnum' 1;
+	letter-spacing: -0.01em;
+}
+
+.eyebrow {
+	font-size: var(--text-xs);
+	font-weight: 600;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ink-faint);
+}
+
+.card {
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-card);
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}

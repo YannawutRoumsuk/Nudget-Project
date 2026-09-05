@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: spendbot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: spendbot
+      POSTGRES_PASSWORD: spendbot
+      POSTGRES_DB: spendbot
+      TZ: Asia/Bangkok
+    ports:
+      - '5433:5432'
+    volumes:
+      - spendbot-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U spendbot -d spendbot']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  spendbot-pgdata:

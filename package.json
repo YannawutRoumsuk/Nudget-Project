@@ -1,0 +1,49 @@
+{
+	"name": "spendbot",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"start": "bun run db:migrate && bun run db:seed && bun ./build/index.js",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "vitest",
+		"test:run": "vitest run",
+		"doctor": "bun run scripts/doctor.ts",
+		"ocr:smoke": "bun run scripts/smoke-ocr.ts",
+		"worker:ocr": "bun run scripts/ocr-worker.ts",
+		"cron:reminders": "bun run scripts/run-reminders.ts",
+		"line:rich-menu": "bun run scripts/rich-menu.ts",
+		"test:coverage": "vitest run --coverage",
+		"db:up": "docker compose up -d --wait --wait-timeout 60",
+		"db:down": "docker compose down",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"db:push": "drizzle-kit push",
+		"db:seed": "bun run scripts/seed.ts",
+		"db:setup": "bun run db:up && bun run db:push && bun run db:seed"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "^5.5.7",
+		"@sveltejs/kit": "^2.63.0",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/node": "^26.4.0",
+		"drizzle-kit": "^0.31.10",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16",
+		"vitest": "^4.1.11"
+	},
+	"dependencies": {
+		"drizzle-orm": "^0.45.2",
+		"postgres": "^3.4.9",
+		"sharp": "^0.35.4",
+		"tesseract.js": "^7.0.0",
+		"zod": "^4.5.4"
+	}
+}

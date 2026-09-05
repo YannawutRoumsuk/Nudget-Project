@@ -1,0 +1,89 @@
+import { fail } from '@sveltejs/kit';
+import { FALLBACK_CATEGORY } from '$lib/categories';
+import { buildBreakdown, fillDailySeries, uncategorisedCount } from '$lib/analytics';
+import { DEFAULT_RANGE, resolveRange } from '$lib/ranges';
+import {
+	deleteTransaction,
+	getByCategory,
+	getDailySeries,
+	getTotals,
+	insertTransaction,
+	listTransactions
+} from '$lib/server/db/queries';
+import { confirmSaved } from '$lib/server/line/messages';
+import { parseMessage } from '$lib/server/parser';
+import { toTxView } from '$lib/server/views';
+import { bangkokDayKey } from '$lib/utils/date';
+import type { Actions, PageServerLoad } from './$types';
+
+const RECENT_LIMIT = 12;
+
+export const load: PageServerLoad = async ({ url }) => {
+	const now = new Date();
+	const range = resolveRange(url.searchParams.get('range') ?? DEFAULT_RANGE, now);
+
+	const [totals, expenseSlices, incomeSlices, series, recent] = await Promise.all([
+		getTotals(range),
+		getByCategory(range, 'expense'),
+		getByCategory(range, 'income'),
+		getDailySeries(range),
+		listTransactions(range, { limit: RECENT_LIMIT })
+	]);
+
+	return {
+		range: { id: range.id, label: range.label, elapsedDays: range.elapsedDays },
+		totals,
+		expenseBreakdown: buildBreakdown(expenseSlices),
+		incomeBreakdown: buildBreakdown(incomeSlices),
+		days: fillDailySeries(series, range.from, range.to, bangkokDayKey(now)),
+		recent: recent.map(toTxView),
+		uncategorised: uncategorisedCount(expenseSlices)
+	};
+};
+
+export const actions: Actions = {
+	/** Same parser the LINE bot uses, so both entry points behave identically. */
+	add: async ({ request }) => {
+		const form = await request.formData();
+		const text = String(form.get('text') ?? '').trim();
+		if (!text) return fail(400, { action: 'add', ok: false, message: 'พิมพ์รายการก่อน' });
+
+		const outcome = await parseMessage(text);
+		if (outcome.type !== 'transaction') {
+			return fail(422, {
+				action: 'add',
+				ok: false,
+				message: 'ไม่เข้าใจข้อความนี้ — ลองแบบ "ข้าวเที่ยง 60"'
+			});
+		}
+
+		const { tx } = outcome;
+		const saved = await insertTransaction({
+			kind: tx.kind,
+			amount: tx.amount.toFixed(2),
+			categoryId: tx.categoryId,
+			note: tx.note,
+			occurredAt: tx.occurredAt,
+			paymentMethod: tx.paymentMethod,
+			source: 'web',
+			parsedBy: tx.parsedBy,
+			rawText: text
+		});
+
+		return {
+			action: 'add',
+			ok: true,
+			message: confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind])
+		};
+	},
+
+	delete: async ({ request }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id)) return fail(400, { action: 'delete', ok: false, message: 'id ไม่ถูกต้อง' });
+
+		const removed = await deleteTransaction(id);
+		if (!removed) return fail(404, { action: 'delete', ok: false, message: 'ไม่พบรายการนี้' });
+		return { action: 'delete', ok: true, message: 'ลบแล้ว' };
+	}
+};

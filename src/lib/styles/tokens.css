@@ -1,0 +1,82 @@
+/*
+ * "Ledger" — a printed accounting book, not a SaaS dashboard.
+ *
+ * Light is warm paper with ink; dark is deep ink with the same warm accents.
+ * Numbers are the loudest thing on the page; everything else is quiet rules and
+ * generous whitespace. Direction is carried by colour semantically: money in is
+ * always `--in`, money out is always `--out`, nowhere else.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	/* --- surface & ink ------------------------------------------------- */
+	--paper: oklch(97.5% 0.008 85);
+	--paper-raised: oklch(99.5% 0.005 85);
+	--paper-sunken: oklch(94.5% 0.012 85);
+	--ink: oklch(22% 0.02 60);
+	--ink-muted: oklch(52% 0.018 60);
+	--ink-faint: oklch(68% 0.015 60);
+	--rule: oklch(88% 0.012 70);
+	--rule-strong: oklch(78% 0.015 70);
+
+	/* --- semantic direction -------------------------------------------- */
+	--in: oklch(58% 0.14 155);
+	--in-soft: oklch(92% 0.05 155);
+	--out: oklch(56% 0.17 25);
+	--out-soft: oklch(93% 0.045 25);
+	--accent: oklch(52% 0.13 265);
+	--accent-soft: oklch(93% 0.04 265);
+
+	/* --- type ----------------------------------------------------------- */
+	--font-sans: 'IBM Plex Sans Thai', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
+	--font-num: 'IBM Plex Sans Thai', ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-base: 0.9375rem;
+	--text-lg: 1.0625rem;
+	--text-xl: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+	--text-display: clamp(2.25rem, 1.6rem + 3.2vw, 3.75rem);
+	--text-figure: clamp(1.5rem, 1.2rem + 1.6vw, 2.125rem);
+
+	/* --- rhythm ---------------------------------------------------------- */
+	--gutter: clamp(1rem, 0.6rem + 2vw, 2.5rem);
+	--stack-sm: 0.5rem;
+	--stack: 1rem;
+	--stack-lg: clamp(1.75rem, 1.2rem + 2vw, 3rem);
+
+	--radius-sm: 4px;
+	--radius: 10px;
+	--radius-lg: 18px;
+
+	--shadow-card: 0 1px 2px oklch(30% 0.02 60 / 0.05), 0 8px 24px -12px oklch(30% 0.02 60 / 0.18);
+	--shadow-lift: 0 2px 4px oklch(30% 0.02 60 / 0.06), 0 16px 36px -14px oklch(30% 0.02 60 / 0.28);
+
+	--dur-fast: 120ms;
+	--dur: 220ms;
+	--ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--paper: oklch(17% 0.014 65);
+		--paper-raised: oklch(21% 0.016 65);
+		--paper-sunken: oklch(13.5% 0.012 65);
+		--ink: oklch(94% 0.012 80);
+		--ink-muted: oklch(72% 0.014 75);
+		--ink-faint: oklch(56% 0.014 70);
+		--rule: oklch(28% 0.014 65);
+		--rule-strong: oklch(38% 0.016 65);
+
+		--in: oklch(76% 0.15 155);
+		--in-soft: oklch(28% 0.05 155);
+		--out: oklch(72% 0.16 30);
+		--out-soft: oklch(28% 0.05 25);
+		--accent: oklch(78% 0.12 265);
+		--accent-soft: oklch(28% 0.05 265);
+
+		--shadow-card: 0 1px 2px oklch(0% 0 0 / 0.4), 0 10px 28px -14px oklch(0% 0 0 / 0.7);
+		--shadow-lift: 0 2px 6px oklch(0% 0 0 / 0.45), 0 20px 44px -16px oklch(0% 0 0 / 0.8);
+	}
+}
