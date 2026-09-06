@@ -2,6 +2,9 @@
 
 บันทึกรายรับรายจ่ายผ่าน **LINE chatbot** แล้วดูสรุปบน **เว็บแดชบอร์ด**
 
+- Production: https://spendbot-production-20be.up.railway.app
+- Source: https://github.com/YannawutRoumsuk/spendbot
+
 พิมพ์ `ข้าวเที่ยง 60` ในแชท LINE → บอทแยกจำนวนเงิน หมวดหมู่ และวันที่ให้เอง →
 แดชบอร์ดแสดงยอดรายวัน สัดส่วนตามหมวดหมู่ และรายการทั้งหมด
 

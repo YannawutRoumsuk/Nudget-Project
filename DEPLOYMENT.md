@@ -56,6 +56,7 @@ Variables:
 ```text
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 PUBLIC_BASE_URL=https://<railway-domain>
+PORT=3000
 OCR_MODE=inline
 REMINDER_MODE=cron
 LINE_CHANNEL_SECRET=<secret>
@@ -89,5 +90,5 @@ LLM_PROVIDER=none
 - เปิด Serverless เฉพาะ `web`
 - ใช้ Postgres private URL
 - ไม่ deploy `worker:ocr` จนกว่าจะมีงาน OCR มาก
-- ตั้ง email usage alert ที่ $4.50 และดู CPU/RAM ใน Metrics หลังใช้งานครบหนึ่งสัปดาห์
+- ตั้ง email usage alert ที่ $5 (ค่าต่ำสุดที่ Railway ยอมรับ) และดู CPU/RAM ใน Metrics หลังใช้งานครบหนึ่งสัปดาห์
 - หาก PostgreSQL เป็นค่าใช้จ่ายหลัก ค่อยย้ายไปฐานข้อมูล serverless ภายนอก โดยเปลี่ยนเพียง `DATABASE_URL`

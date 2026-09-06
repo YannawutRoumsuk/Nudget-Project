@@ -1,4 +1,4 @@
-# Spendbot — สถานะ 5 กันยายน 2026
+# Spendbot — สถานะ 6 กันยายน 2026
 
 ## ขอบเขต
 
@@ -18,13 +18,15 @@
 - แสดงยอดใช้บัตรเครดิตเดือนปัจจุบัน
 - เตือนบิลทาง LINE ตาม `REMINDER_HOUR` และ `REMINDER_DAYS_BEFORE` เมื่อเซิร์ฟเวอร์เปิดอยู่ พร้อมกันส่งซ้ำในฐานข้อมูล
 
-## สถานะระบบบนเครื่อง
+## Production
 
-- PostgreSQL container ทำงานและ schema ล่าสุดถูก push แล้ว
-- เว็บทำงานที่ `http://127.0.0.1:5173`
-- LINE webhook ใช้ Cloudflare Quick Tunnel
-- `PUBLIC_BASE_URL` และ Rich Menu ชี้ไป Quick Tunnel ปัจจุบัน
-- OCR language cache อยู่ใน `.cache/tesseract` และ smoke test อ่านยอด 1,250.50 บาท วันที่ และผู้รับสำเร็จโดยไม่ใช้อินเทอร์เน็ตในรอบถัดไป
+- GitHub private repo: `https://github.com/YannawutRoumsuk/spendbot`
+- เว็บ Railway: `https://spendbot-production-20be.up.railway.app`
+- Railway มี `spendbot` แบบ Serverless, PostgreSQL กลาง และ `reminders` แบบ Cron เวลา 09:00 น. ไทย
+- LINE webhook ชี้ไป production, เปิดใช้งานอยู่ และ LINE verification ตอบ `200 OK`
+- Rich Menu production 6 ปุ่มถูกอัปโหลดและตั้งเป็น default แล้ว
+- GitHub Actions ตรวจ type, tests, build และ Docker image ทุก push ก่อน Railway deploy
+- ตั้ง Railway email usage alert ที่ $5 ซึ่งเป็นค่าต่ำสุดของระบบ
 
 ## ผลตรวจล่าสุด
 
@@ -35,10 +37,9 @@
 - Browser smoke test: หน้าแผนเดือน หน้าเพิ่มบิล และหน้าแก้รายการเปิดได้ ไม่มี console error และไม่ล้นจอที่ความกว้าง 390px
 - Rich Menu API: สร้าง อัปโหลดรูป 2500x843 และตั้งเป็น default สำเร็จ
 
-## สิ่งที่ยังควรทำเมื่อจะเปิดตลอดเวลา
+## งานที่ยังเหลือ
 
-- สร้าง private GitHub repo และเชื่อม Railway services ตาม `DEPLOYMENT.md`
-- เปลี่ยน Quick Tunnel เป็น Railway domain ถาวร แล้วอัปเดตทั้ง LINE webhook และ Rich Menu
+- ย้ายรายการเดิม 2 รายการจาก PostgreSQL local ไป production หลัง Docker Desktop เปิดได้ ปัจจุบัน Docker ติด stale socket จึงต้องรีสตาร์ต Windows หรือ WSL ก่อน
 - เพิ่ม backup/export และหน้าดูเดือนย้อนหลังแบบเลือกเดือน
 - OCR ของแต่ละธนาคารอาจวางข้อความต่างกัน ถ้ามีสลิปที่อ่านผิดให้นำรูปจริงมาปรับ parser เพิ่ม
 - หากต้องการ LIFF login แบบไม่ต้องใส่รหัสผ่านใน LINE ต้องสร้าง LINE Login หรือ LINE MINI App channel ใน provider เดียวกัน; Messaging API channel อย่างเดียวเพิ่ม LIFF app ไม่ได้
