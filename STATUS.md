@@ -21,7 +21,7 @@
 ## Production
 
 - GitHub private repo: `https://github.com/YannawutRoumsuk/Nudget-Project`
-- เว็บ Railway: `https://spendbot-production-20be.up.railway.app`
+- เว็บ Railway: `https://nudget-production.up.railway.app`
 - Railway มี `spendbot` แบบ Serverless, PostgreSQL กลาง และ `reminders` แบบ Cron เวลา 09:00 น. ไทย
 - LINE webhook ชี้ไป production, เปิดใช้งานอยู่ และ LINE verification ตอบ `200 OK`
 - Rich Menu production 6 ปุ่มถูกอัปโหลดและตั้งเป็น default แล้ว
