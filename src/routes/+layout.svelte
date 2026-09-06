@@ -2,14 +2,15 @@
 	import { page } from '$app/state';
 	import '$lib/styles/global.css';
 
-	let { children } = $props();
+	let { children, data } = $props();
 
-	const NAV = [
+	const NAV = $derived([
 		{ href: '/', label: 'ภาพรวม' },
 		{ href: '/transactions', label: 'รายการ' },
 		{ href: '/bills', label: 'บิล' },
-		{ href: '/plan', label: 'แผนเดือน' }
-	];
+		{ href: '/plan', label: 'แผนเดือน' },
+		...(data?.isOwner ? [{ href: '/members', label: 'สมาชิก' }] : [])
+	]);
 
 	const showChrome = $derived(page.url.pathname !== '/login');
 </script>

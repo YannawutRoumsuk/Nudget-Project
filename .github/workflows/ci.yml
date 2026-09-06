@@ -11,6 +11,27 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    # Membership and the member list are SQL. Without a real database here the
+    # integration tests skip themselves and those queries ship unverified.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: spendbot
+          POSTGRES_PASSWORD: spendbot
+          POSTGRES_DB: nudget_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U spendbot -d nudget_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://spendbot:spendbot@localhost:5432/nudget_test
+
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -18,6 +39,10 @@ jobs:
           bun-version: 1.3.11
       - run: bun install --frozen-lockfile
       - run: bun run check
+      - name: Apply migrations to the test database
+        run: bun run db:migrate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - run: bun run test:run
       - run: bun run build
-      - run: docker build -t spendbot:${{ github.sha }} .
+      - run: docker build -t nudget:${{ github.sha }} .

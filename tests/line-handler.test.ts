@@ -5,14 +5,16 @@ const mocks = vi.hoisted(() => ({
 	getTotals: vi.fn(), getByCategory: vi.fn(), getPaymentMethodTotal: vi.fn(), parseMessage: vi.fn(), replyText: vi.fn(),
 	getPendingSlip: vi.fn(), replacePendingSlip: vi.fn(), updatePendingSlip: vi.fn(), deletePendingSlip: vi.fn(),
 	getMessageContent: vi.fn(), pushText: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
-	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), ensureUser: vi.fn(),
+	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
+	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' } }
 }));
-vi.mock('$lib/server/config', () => ({
-	config: mocks.config,
-	isAllowedLineUser: (id: string) => mocks.config.line.allowedUserIds.includes(id)
+vi.mock('$lib/server/config', () => ({ config: mocks.config }));
+vi.mock('$lib/server/access', () => ({
+	admit: mocks.admit,
+	isOwner: (id: string) => mocks.config.line.allowedUserIds.includes(id)
 }));
-vi.mock('$lib/server/db/users', () => ({ ensureUser: mocks.ensureUser }));
+vi.mock('$lib/server/db/users', () => ({ listMembers: mocks.listMembers }));
 vi.mock('$lib/server/db/queries', () => mocks);
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
@@ -24,10 +26,11 @@ vi.mock('$lib/server/db/bills', () => ({ listBills: mocks.listBills, getUnpaidBi
 vi.mock('$lib/server/db/plans', () => ({ getMonthlyPlan: mocks.getMonthlyPlan }));
 vi.mock('$lib/server/ocr/slip', () => ({ readSlip: mocks.readSlip }));
 vi.mock('$lib/server/ocr/processor', () => ({ processPendingSlip: mocks.processPendingSlip }));
-vi.mock('$lib/server/parser', () => ({ parseMessage: mocks.parseMessage, matchCommand: (text: string) => text === 'ไอดี' ? 'whoami' : null }));
+vi.mock('$lib/server/parser', () => ({ parseMessage: mocks.parseMessage, matchCommand: (text: string) => text === 'ไอดี' ? 'whoami' : text === 'สมาชิก' ? 'members' : null }));
 vi.mock('../src/lib/server/line/client', () => ({
 	replyText: mocks.replyText,
 	pushText: mocks.pushText,
+	getDisplayName: mocks.getDisplayName,
 	getMessageContent: mocks.getMessageContent
 }));
 import { handleEvents, type LineEvent } from '../src/lib/server/line/handler';
@@ -44,7 +47,11 @@ const event: LineEvent = {
 beforeEach(() => {
 	vi.resetAllMocks();
 	mocks.config.line.allowedUserIds = ['owner'];
-	mocks.ensureUser.mockResolvedValue(owner);
+	mocks.admit.mockImplementation(async (id: string) =>
+		id === 'owner' ? { status: 'member', user: owner } : { status: 'joined', user: { id: 99, lineUserId: id, displayName: '' } }
+	);
+	mocks.getDisplayName.mockResolvedValue('เพื่อน');
+	mocks.listMembers.mockResolvedValue([]);
 	mocks.parseMessage.mockResolvedValue({ type: 'transaction', tx: {
 		kind: 'expense', amount: 60, categoryId: 'food', note: 'ข้าว',
 		occurredAt: new Date(event.timestamp!), parsedBy: 'rule'
@@ -59,9 +66,16 @@ beforeEach(() => {
 });
 
 describe('LINE processing', () => {
-	it('sends a short getting-started message when a user adds the bot', async () => {
+	it('opens an account the moment someone adds the bot', async () => {
 		await handleEvents([{ type: 'follow', replyToken: 'reply', source: { type: 'user', userId: 'new-user' } }]);
+		expect(mocks.admit).toHaveBeenCalledWith('new-user', expect.any(Function));
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เปิดบัญชีให้แล้ว'));
+	});
+
+	it('greets an existing member who re-adds the bot without touching their ledger', async () => {
+		await handleEvents([{ type: 'follow', replyToken: 'reply', source: { type: 'user', userId: 'owner' } }]);
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เริ่มง่าย ๆ'));
+		expect(mocks.insertTransaction).not.toHaveBeenCalled();
 	});
 
 	it('blocks ledger access until the owner is configured', async () => {
@@ -70,10 +84,11 @@ describe('LINE processing', () => {
 		expect(mocks.parseMessage).not.toHaveBeenCalled();
 		expect(mocks.processEventOnce).not.toHaveBeenCalled();
 	});
-	it('allows identity setup without a database or owner', async () => {
+	it('hands back the id needed to claim an unclaimed bot', async () => {
 		mocks.config.line.allowedUserIds = [];
 		await handleEvents([{ ...event, message: { id: 'identity', type: 'text', text: 'ไอดี' } }]);
-		expect(mocks.replyText).toHaveBeenCalledWith('reply', 'LINE userId ของคุณคือ\nowner');
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('owner'));
+		expect(mocks.admit).not.toHaveBeenCalled();
 		expect(mocks.processEventOnce).not.toHaveBeenCalled();
 	});
 	it('records through the transaction executor using original send time', async () => {
@@ -107,16 +122,63 @@ describe('LINE processing', () => {
 		await handleEvents([event]);
 		expect(mocks.deleteLatestTransaction).toHaveBeenCalledWith(owner.id, executor);
 	});
-	it('rejects another user before parsing or opening a transaction', async () => {
+	it('welcomes a newcomer instead of booking their first message as an expense', async () => {
 		await handleEvents([{ ...event, source: { type: 'user', userId: 'stranger' } }]);
-		expect(mocks.parseMessage).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เปิดบัญชีให้แล้ว'));
 		expect(mocks.processEventOnce).not.toHaveBeenCalled();
 	});
-	it('writes a second allowed account into its own ledger', async () => {
-		mocks.config.line.allowedUserIds = ['owner', 'partner'];
-		mocks.ensureUser.mockResolvedValue({ id: 99, lineUserId: 'partner', displayName: '' });
+
+	it('tells the owners when a stranger opens an account', async () => {
+		const joined = { id: 99, lineUserId: 'guest', displayName: 'เพื่อน', createdAt: new Date('2026-09-06T03:00:00Z') };
+		mocks.admit.mockResolvedValue({ status: 'joined', user: joined });
+		await handleEvents([{ ...event, source: { type: 'user', userId: 'guest' } }]);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เปิดบัญชีให้แล้ว'));
+		expect(mocks.pushText).toHaveBeenCalledWith('owner', expect.stringContaining('เพื่อน'));
+		expect(mocks.pushText).toHaveBeenCalledWith('owner', expect.stringContaining('guest'));
+		expect(mocks.processEventOnce).not.toHaveBeenCalled();
+	});
+
+	it('does not announce an owner to themselves', async () => {
+		const joined = { id: 42, lineUserId: 'owner', displayName: '', createdAt: new Date() };
+		mocks.admit.mockResolvedValue({ status: 'joined', user: joined });
+		await handleEvents([event]);
+		expect(mocks.pushText).not.toHaveBeenCalled();
+	});
+
+	it('keeps the signup when announcing it fails', async () => {
+		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+		mocks.admit.mockResolvedValue({ status: 'joined', user: { id: 99, lineUserId: 'guest', displayName: '', createdAt: new Date() } });
+		mocks.pushText.mockRejectedValue(new Error('LINE down'));
+		await expect(handleEvents([{ ...event, source: { type: 'user', userId: 'guest' } }])).resolves.toBeUndefined();
+		log.mockRestore();
+	});
+
+	it('turns away an account whose access was revoked', async () => {
+		mocks.admit.mockResolvedValue({ status: 'revoked' });
+		await handleEvents([{ ...event, source: { type: 'user', userId: 'guest' } }]);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ปิดการใช้งาน'));
+		expect(mocks.processEventOnce).not.toHaveBeenCalled();
+	});
+
+	it('lists members for an owner', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'members' });
+		mocks.listMembers.mockResolvedValue([
+			{ displayName: 'เพื่อน', lineUserId: 'guest', active: true, joinedAt: new Date('2026-09-01T03:00:00Z'), transactionCount: 3, lastActivityAt: new Date('2026-09-05T03:00:00Z') }
+		]);
+		await handleEvents([{ ...event, message: { id: 'm', type: 'text', text: 'สมาชิก' } }]);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เพื่อน'));
+		expect(mocks.processEventOnce).not.toHaveBeenCalled();
+	});
+
+	it('refuses the member list to anyone who is not an owner', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: { id: 99, lineUserId: 'guest', displayName: '' } });
+		await handleEvents([{ ...event, source: { type: 'user', userId: 'guest' }, message: { id: 'm', type: 'text', text: 'สมาชิก' } }]);
+		expect(mocks.listMembers).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เฉพาะเจ้าของ'));
+	});
+	it('writes a second member into its own ledger', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: { id: 99, lineUserId: 'partner', displayName: '' } });
 		await handleEvents([{ ...event, source: { type: 'user', userId: 'partner' } }]);
-		expect(mocks.ensureUser).toHaveBeenCalledWith('partner');
 		expect(mocks.getPendingSlip).toHaveBeenCalledWith(99);
 		expect(mocks.insertTransaction).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 99, lineUserId: 'partner' }),

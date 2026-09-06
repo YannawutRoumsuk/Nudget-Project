@@ -68,9 +68,9 @@ export const config = {
 		channelSecret: (env.LINE_CHANNEL_SECRET ?? '').trim(),
 		accessToken: (env.LINE_CHANNEL_ACCESS_TOKEN ?? '').trim(),
 		/**
-		 * Comma-separated allowlist. Ledger access requires membership; the
-		 * identity command still works during setup so a new person can read
-		 * their own id off the bot before being added here.
+		 * Comma-separated list of owners. These accounts have access before any
+		 * database row exists, and they are the only ones who can see the member
+		 * list or revoke someone. Everyone else signs up by adding the bot.
 		 */
 		allowedUserIds: splitList(env.LINE_ALLOWED_USER_ID)
 	},

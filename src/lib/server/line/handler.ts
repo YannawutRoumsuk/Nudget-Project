@@ -1,7 +1,9 @@
 import { FALLBACK_CATEGORY } from '$lib/categories';
 import { analyzeBudget } from '$lib/budget';
 import { billDueDate } from '$lib/bills';
-import { config, isAllowedLineUser } from '$lib/server/config';
+import { config } from '$lib/server/config';
+import { admit, isOwner } from '$lib/server/access';
+import { listMembers } from '$lib/server/db/users';
 import { getUnpaidBillTotal, listBills } from '$lib/server/db/bills';
 import { getMonthlyPlan } from '$lib/server/db/plans';
 import {
@@ -14,7 +16,6 @@ import {
 } from '$lib/server/db/queries';
 import type { DbExecutor } from '$lib/server/db/queries';
 import { deletePendingSlip, getPendingSlip, replacePendingSlip } from '$lib/server/db/slips';
-import { ensureUser } from '$lib/server/db/users';
 import type { User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseMessage } from '$lib/server/parser';
@@ -31,11 +32,15 @@ import {
 	daysInBangkokMonth
 } from '$lib/utils/date';
 import { formatNumber, toNumber } from '$lib/utils/money';
-import { replyText } from './client';
+import { getDisplayName, pushText, replyText } from './client';
 import {
 	confirmSaved,
 	helpText,
-	notAllowedText,
+	joinedText,
+	membersText,
+	newMemberText,
+	revokedText,
+	setupText,
 	summaryText,
 	undoText,
 	unknownText,
@@ -49,6 +54,7 @@ export interface LineEvent {
 	timestamp?: number;
 	source?: { type: string; userId?: string };
 	message?: { id: string; type: string; text?: string; contentProvider?: { type: string } };
+	postback?: { data: string };
 }
 
 export async function handleEvents(events: LineEvent[]): Promise<void> {
@@ -61,14 +67,22 @@ export async function handleEvents(events: LineEvent[]): Promise<void> {
 }
 
 async function handleEvent(event: LineEvent): Promise<void> {
+	const userId = event.source?.userId ?? '';
 	if (!event.replyToken) return;
 
-	if (event.type === 'follow') {
-		await replyText(event.replyToken, welcomeText());
+	if (config.line.allowedUserIds.length === 0) {
+		// Nobody owns the bot yet, so hand back the id needed to claim it.
+		await replyText(event.replyToken, userId ? setupText(userId) : 'ไม่พบ userId ในข้อความนี้');
 		return;
 	}
 
-	const userId = event.source?.userId ?? '';
+	// Adding the bot is the signup: there is nothing to type and nothing to
+	// paste, which is the whole point of doing it here.
+	if (event.type === 'follow') {
+		await gateOnMembership(event.replyToken, userId, welcomeText());
+		return;
+	}
+
 	if (event.type !== 'message' || !event.message) return;
 	const text = event.message.text ?? '';
 	// Bootstrap identity without allowing access to the personal ledger.
@@ -76,17 +90,15 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		await replyText(event.replyToken, userId ? `LINE userId ของคุณคือ\n${userId}` : 'ไม่พบ userId ในข้อความนี้');
 		return;
 	}
-	if (config.line.allowedUserIds.length === 0) {
-		await replyText(event.replyToken, 'ยังไม่ได้ตั้งค่าเจ้าของบัญชี — พิมพ์ ไอดี แล้วนำค่าไปใส่ LINE_ALLOWED_USER_ID ใน .env');
+
+	const user = await gateOnMembership(event.replyToken, userId);
+	if (!user) return;
+	// Answered outside the ledger transaction: it reads other people's rows, so
+	// it has no business inside a per-user write, and it must not be deduped.
+	if (matchCommand(text) === 'members') {
+		await replyText(event.replyToken, await membersSummary(userId));
 		return;
 	}
-	if (!isAllowedLineUser(userId)) {
-		await replyText(event.replyToken, notAllowedText(userId));
-		return;
-	}
-	// Every allowed account gets its own ledger; the row is created on first use
-	// so nobody has to be provisioned by hand before they can type.
-	const user = await ensureUser(userId);
 	if (event.message.type === 'image') {
 		await handleSlipImage(event, user);
 		return;
@@ -113,6 +125,58 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		// The ledger is committed; a failed confirmation must not repeat mutations.
 		console.error('[line] confirmation failed:', error);
 	}
+}
+
+/**
+ * Answers a message from someone who may not be a member yet, returning the
+ * ledger to use or null when the caller should stop.
+ */
+async function gateOnMembership(replyToken: string, userId: string, greeting?: string): Promise<User | null> {
+	const admission = await admit(userId, () => getDisplayName(userId));
+	if (admission.status === 'member') {
+		// A returning member who re-adds the bot gets a greeting; mid-conversation
+		// there is nothing to say, so the caller carries on with their message.
+		if (greeting) await replyText(replyToken, greeting);
+		return greeting ? null : admission.user;
+	}
+	if (admission.status === 'revoked') {
+		await replyText(replyToken, revokedText());
+		return null;
+	}
+	// A first message that also opens the account gets the welcome rather than
+	// being silently swallowed as an expense.
+	await sendQuietly(() => replyText(replyToken, joinedText()));
+	await announceNewMember(admission.user);
+	return null;
+}
+
+/**
+ * Anyone who adds the bot gets an account, so the owners' protection is knowing
+ * it happened. Telling them is best-effort — a failed push must not undo a
+ * signup — and the member list on the dashboard is the durable record.
+ */
+async function announceNewMember(user: User): Promise<void> {
+	for (const owner of config.line.allowedUserIds) {
+		if (owner === user.lineUserId) continue;
+		await sendQuietly(() => pushText(owner, newMemberText(user.displayName, user.lineUserId, user.createdAt)));
+	}
+}
+
+/**
+ * One unreachable recipient must not abort a loop of messages or fail the
+ * webhook — LINE would retry the whole event and repeat the ones that worked.
+ */
+async function sendQuietly(send: () => Promise<unknown>): Promise<void> {
+	try {
+		await send();
+	} catch (error) {
+		console.error('[line] message failed:', error);
+	}
+}
+
+async function membersSummary(userId: string): Promise<string> {
+	if (!isOwner(userId)) return 'เฉพาะเจ้าของบอทเท่านั้นที่ดูรายชื่อสมาชิกได้';
+	return membersText(await listMembers());
 }
 
 async function handleSlipImage(event: LineEvent, user: User): Promise<void> {
@@ -171,6 +235,10 @@ async function runCommand(command: BotCommand, user: User, executor: DbExecutor)
 			return helpText();
 		case 'whoami':
 			return `LINE userId ของคุณคือ\n${user.lineUserId}`;
+		case 'members':
+			// Answered in handleEvent: it reads across users, so it must not run
+			// inside this user's write transaction.
+			throw new Error('members must be handled before the ledger transaction');
 		case 'undo':
 			return undoText(await deleteLatestTransaction(user.id, executor));
 		case 'bills':

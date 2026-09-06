@@ -44,6 +44,60 @@ export async function pushText(to: string, text: string): Promise<boolean> {
 	return post(PUSH_URL, { to, messages: toMessages(text) });
 }
 
+export interface PostbackAction {
+	/** LINE truncates a button label past 20 characters. */
+	label: string;
+	data: string;
+}
+
+/** LINE's own caps on a buttons template: 160 characters of text, 4 actions. */
+const MAX_TEMPLATE_TEXT = 160;
+const MAX_ACTIONS = 4;
+
+function toButtonsMessage(text: string, actions: PostbackAction[]) {
+	return {
+		type: 'template',
+		altText: text.slice(0, MAX_TEMPLATE_TEXT),
+		template: {
+			type: 'buttons',
+			text: text.slice(0, MAX_TEMPLATE_TEXT),
+			actions: actions.slice(0, MAX_ACTIONS).map((action) => ({
+				type: 'postback',
+				label: action.label.slice(0, 20),
+				data: action.data,
+				displayText: action.label.slice(0, 20)
+			}))
+		}
+	};
+}
+
+export async function pushButtons(to: string, text: string, actions: PostbackAction[]): Promise<boolean> {
+	return post(PUSH_URL, { to, messages: [toButtonsMessage(text, actions)] });
+}
+
+export async function replyButtons(replyToken: string, text: string, actions: PostbackAction[]): Promise<void> {
+	await post(REPLY_URL, { replyToken, messages: [toButtonsMessage(text, actions)] });
+}
+
+/**
+ * Best-effort: the display name only decorates the approval prompt, so a failed
+ * lookup must not stop someone from being able to ask for access.
+ */
+export async function getDisplayName(lineUserId: string): Promise<string> {
+	try {
+		const res = await fetch(`https://api.line.me/v2/bot/profile/${encodeURIComponent(lineUserId)}`, {
+			headers: { authorization: `Bearer ${config.line.accessToken}` },
+			signal: AbortSignal.timeout(10_000)
+		});
+		if (!res.ok) return '';
+		const profile = (await res.json()) as { displayName?: string };
+		return profile.displayName ?? '';
+	} catch (error) {
+		console.error('[line] profile lookup failed:', error);
+		return '';
+	}
+}
+
 export async function getMessageContent(messageId: string): Promise<ArrayBuffer> {
 	const res = await fetch(`${CONTENT_URL}/${encodeURIComponent(messageId)}/content`, {
 		headers: { authorization: `Bearer ${config.line.accessToken}` },

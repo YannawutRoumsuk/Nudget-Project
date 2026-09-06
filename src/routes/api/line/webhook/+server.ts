@@ -20,7 +20,9 @@ const payloadSchema = z.object({
 			type: z.string(),
 			text: z.string().optional(),
 			contentProvider: z.object({ type: z.string() }).optional()
-		}).optional()
+		}).optional(),
+		// LINE caps postback data at 300 characters; anything longer is not ours.
+		postback: z.object({ data: z.string().max(300) }).optional()
 	}))
 });
 
