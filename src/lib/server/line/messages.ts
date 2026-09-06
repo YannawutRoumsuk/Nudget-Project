@@ -94,6 +94,18 @@ export function helpText(): string {
 	].join('\n');
 }
 
+/** Kept deliberately short: this is the first message after someone adds the bot. */
+export function welcomeText(): string {
+	return [
+		'👋 ยินดีต้อนรับ Spendbot',
+		'',
+		'เริ่มง่าย ๆ: พิมพ์ “ข้าว 60” เพื่อบันทึกรายจ่าย',
+		'ส่งรูปสลิป แล้วตอบว่าเป็นค่าอะไรได้เลย',
+		'',
+		'ถ้ายังเข้าใช้ไม่ได้ พิมพ์ “ไอดี” แล้วส่งรหัสให้เจ้าของบอทเพื่อเปิดบัญชี'
+	].join('\n');
+}
+
 export function unknownText(): string {
 	return [
 		'🤔 ไม่เข้าใจข้อความนี้',

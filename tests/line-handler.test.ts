@@ -53,6 +53,11 @@ beforeEach(() => {
 });
 
 describe('LINE processing', () => {
+	it('sends a short getting-started message when a user adds the bot', async () => {
+		await handleEvents([{ type: 'follow', replyToken: 'reply', source: { type: 'user', userId: 'new-user' } }]);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เริ่มง่าย ๆ'));
+	});
+
 	it('blocks ledger access until the owner is configured', async () => {
 		mocks.config.line.allowedUserId = '';
 		await handleEvents([event]);

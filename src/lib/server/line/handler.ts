@@ -36,7 +36,8 @@ import {
 	notAllowedText,
 	summaryText,
 	undoText,
-	unknownText
+	unknownText,
+	welcomeText
 } from './messages';
 
 export interface LineEvent {
@@ -61,7 +62,7 @@ async function handleEvent(event: LineEvent): Promise<void> {
 	if (!event.replyToken) return;
 
 	if (event.type === 'follow') {
-		await replyText(event.replyToken, helpText());
+		await replyText(event.replyToken, welcomeText());
 		return;
 	}
 
