@@ -21,7 +21,7 @@ suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
 	const { listMembers, setUserActive, getUserByLineId } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
-	const { categories, transactions, users } = await import('../src/lib/server/db/schema');
+	const { billPayments, bills, categories, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
 
 	beforeEach(async () => {
 		await db.delete(transactions);
@@ -96,5 +96,49 @@ suite('membership against a real database', async () => {
 		await setUserActive(joined.status === 'joined' ? joined.user.id : 0, false);
 		const members = await listMembers();
 		expect(members.find((member) => member.lineUserId === 'Uguest')?.active).toBe(false);
+	});
+
+	it('exports only the signed-in account across every owned table', async () => {
+		const accountA = await admit('Uaccount-a', async () => 'คนเอ');
+		const accountB = await admit('Uaccount-b', async () => 'คนบี');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+
+		const [billA, billB] = await db.insert(bills).values([
+			{ userId: userA, name: 'ค่าไฟ เอ', amount: '900.10', categoryId: 'food', paymentMethod: 'bank', recurrence: 'once', dueDate: new Date('2026-09-01T00:00:00Z') },
+			{ userId: userB, name: 'ค่าไฟ บี', amount: '800.20', categoryId: 'food', paymentMethod: 'bank', recurrence: 'once', dueDate: new Date('2026-09-02T00:00:00Z') }
+		]).returning();
+		const [txA, txB] = await db.insert(transactions).values([
+			{ userId: userA, kind: 'expense', amount: '60.25', categoryId: 'food', note: 'ข้าว เอ', occurredAt: new Date('2026-09-01T05:00:00Z'), source: 'line', parsedBy: 'rule', billId: billA.id },
+			{ userId: userB, kind: 'expense', amount: '70.50', categoryId: 'food', note: 'ข้าว บี', occurredAt: new Date('2026-09-01T05:00:00Z'), source: 'line', parsedBy: 'rule', billId: billB.id }
+		]).returning();
+		await db.insert(billPayments).values([
+			{ userId: userA, billId: billA.id, transactionId: txA.id, period: '2026-09', paidAt: new Date('2026-09-01T05:00:00Z') },
+			{ userId: userB, billId: billB.id, transactionId: txB.id, period: '2026-09', paidAt: new Date('2026-09-01T05:00:00Z') }
+		]);
+		await db.insert(monthlyPlans).values([
+			{ userId: userA, month: '2026-09', expectedIncome: '1000.10' },
+			{ userId: userB, month: '2026-09', expectedIncome: '2000.20' }
+		]);
+
+		const { parseExportSelection } = await import('../src/lib/export');
+		const { getPersonalExport } = await import('../src/lib/server/db/exports');
+		const selection = parseExportSelection(new URLSearchParams('mode=range&from=2026-08-31&to=2026-09-30'));
+		const exported = await getPersonalExport(userA, selection, new Date('2026-10-01T00:00:00Z'));
+
+		expect(exported.account?.displayName).toBe('คนเอ');
+		expect(exported.transactions.map((row) => row.note)).toEqual(['ข้าว เอ']);
+		expect(exported.transactions.map((row) => row.id)).toEqual([txA.id]);
+		expect(exported.bills.map((row) => row.name)).toEqual(['ค่าไฟ เอ']);
+		expect(exported.bills.map((row) => row.id)).toEqual([billA.id]);
+		expect(exported.bills[0]?.dueDate).toBe('2026-09-01');
+		expect(exported.billPayments).toHaveLength(1);
+		expect(exported.billPayments.map((row) => row.billId)).toEqual([billA.id]);
+		expect(exported.billPayments.map((row) => row.transactionId)).toEqual([txA.id]);
+		expect(exported.monthlyPlans.map((row) => row.expectedIncome)).toEqual(['1000.10']);
+		expect(JSON.stringify(exported)).not.toContain('คนบี');
+		expect(JSON.stringify(exported)).not.toContain('70.50');
+		const { billsCsv } = await import('../src/lib/export');
+		expect(billsCsv(exported)).toContain('"2026-09-01"');
 	});
 });

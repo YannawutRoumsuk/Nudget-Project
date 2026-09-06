@@ -1,4 +1,4 @@
-# Nudget — สถานะ 6 กันยายน 2026
+# Nudget — สถานะ 7 กันยายน 2026
 
 ## ขอบเขต
 
@@ -24,12 +24,14 @@
 - แผนเดือน: รายรับที่คาด, เป้าหมายออม, งบอาหารต่อวัน, ค่าเดินทางต่อวัน/จำนวนวันทำงาน, บิลค้าง และคำแนะนำยอดใช้ได้ต่อวัน
 - แสดงยอดใช้บัตรเครดิตเดือนปัจจุบัน
 - เตือนบิลทาง LINE ตาม `REMINDER_HOUR` และ `REMINDER_DAYS_BEFORE` เมื่อเซิร์ฟเวอร์เปิดอยู่ พร้อมกันส่งซ้ำในฐานข้อมูล
+- ส่งออกข้อมูลของบัญชีที่เข้าสู่ระบบตามเดือนหรือช่วงวันที่: ธุรกรรมและบิลเป็น CSV ภาษาไทย และข้อมูลโครงสร้างรวมแผนกับการชำระบิลเป็น JSON
+- สำรอง PostgreSQL ทุกวันเวลา 10:00 น. ไทยไป private Railway Bucket เก็บย้อนหลัง 30 วัน พร้อม checksum และ restore drill ใน CI
 
 ## Production
 
 - GitHub private repo: `https://github.com/YannawutRoumsuk/Nudget-Project`
 - เว็บ Railway: `https://nudget-production.up.railway.app`
-- Railway มี `spendbot` แบบ Serverless, PostgreSQL กลาง และ `reminders` แบบ Cron เวลา 09:00 น. ไทย
+- Railway มี `Nudget` แบบ Serverless, PostgreSQL กลาง, `reminders` แบบ Cron เวลา 09:00 น. ไทย และ `postgres-backup` เวลา 10:00 น. ไทย
 - LINE webhook ชี้ไป production, เปิดใช้งานอยู่ และ LINE verification ตอบ `200 OK`
 - Rich Menu production 6 ปุ่มถูกอัปโหลดและตั้งเป็น default แล้ว
 - GitHub Actions ตรวจ type, tests, build และ Docker image ทุก push ก่อน Railway deploy
@@ -37,7 +39,7 @@
 
 ## ผลตรวจล่าสุด
 
-- Unit/handler tests: 149 ผ่าน (รวม integration test ที่รันกับ PostgreSQL จริงใน CI)
+- Automated tests: 157 รายการ (151 ผ่านบนเครื่อง และอีก 6 integration test รันกับ PostgreSQL จริงใน CI)
 - Svelte/TypeScript: 0 errors, 0 warnings
 - Production build: ผ่าน
 - Database doctor: env, schema และ seeded categories ผ่าน
@@ -50,6 +52,6 @@
 ## งานที่ยังเหลือ
 
 - ไม่มีเพดานจำนวนผู้ใช้ ตัวกั้นคือลิงก์แอดเพื่อนของ LINE OA — ต้องไม่เปิดให้ค้นหาเจอ
-- เพิ่ม backup/export และหน้าดูเดือนย้อนหลังแบบเลือกเดือน
+- เพิ่มหน้าดูเดือนย้อนหลังแบบเลือกเดือน
 - OCR ของแต่ละธนาคารอาจวางข้อความต่างกัน ถ้ามีสลิปที่อ่านผิดให้นำรูปจริงมาปรับ parser เพิ่ม
 - หากต้องการ LIFF login แบบไม่ต้องใส่รหัสผ่านใน LINE ต้องสร้าง LINE Login หรือ LINE MINI App channel ใน provider เดียวกัน; Messaging API channel อย่างเดียวเพิ่ม LIFF app ไม่ได้
