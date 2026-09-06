@@ -1,11 +1,15 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { ActionData, PageData } from './$types';
 
 	type Liff = {
-		init(config: { liffId: string; withLoginOnExternalBrowser?: boolean }): Promise<void>;
+		init(config: { liffId: string }): Promise<void>;
 		isLoggedIn(): boolean;
+		login(config?: { redirectUri?: string }): void;
 		getAccessToken(): string | null;
 	};
+
+	const SDK_URL = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let liffError = $state('');
@@ -13,31 +17,86 @@
 
 	const addFriendUrl = $derived(data.addFriendId ? `https://line.me/R/ti/p/${data.addFriendId}` : '');
 
-	async function loginWithLine() {
-		const liff = (window as Window & { liff?: Liff }).liff;
-		if (!data.liffId || !liff) {
-			liffError = 'LINE Login ยังโหลดไม่เสร็จ ลองอีกครั้ง';
+	/** The SDK tag may still be in flight when the component mounts. */
+	function loadSdk(): Promise<Liff> {
+		const globalWindow = window as Window & { liff?: Liff };
+		if (globalWindow.liff) return Promise.resolve(globalWindow.liff);
+		return new Promise((resolve, reject) => {
+			const tag = document.querySelector<HTMLScriptElement>(`script[src="${SDK_URL}"]`);
+			if (!tag) return reject(new Error('LINE Login ยังโหลดไม่เสร็จ ลองรีเฟรชหน้านี้'));
+			tag.addEventListener('load', () =>
+				globalWindow.liff
+					? resolve(globalWindow.liff)
+					: reject(new Error('LINE Login ยังโหลดไม่เสร็จ ลองรีเฟรชหน้านี้'))
+			);
+			tag.addEventListener('error', () => reject(new Error('โหลด LINE Login ไม่สำเร็จ')));
+		});
+	}
+
+	async function exchangeToken(liff: Liff) {
+		const accessToken = liff.getAccessToken();
+		if (!accessToken) throw new Error('ไม่ได้รับ access token จาก LINE');
+		const response = await fetch('/api/auth/line', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ accessToken })
+		});
+		if (!response.ok) {
+			// Surface the server's own reason — "you have no account yet" is
+			// actionable, and the QR to fix it is right below this message.
+			const body = await response.json().catch(() => null);
+			throw new Error(body?.message ?? 'ยืนยันตัวตนไม่สำเร็จ');
+		}
+		window.location.assign(data.next);
+	}
+
+	/**
+	 * LINE sends the browser back to this page as a fresh page load, so the
+	 * sign-in has to be finished here. Doing it only in the click handler left
+	 * the returning visitor staring at the same login page, having to press the
+	 * button a second time to pick up the session LINE had already granted.
+	 */
+	onMount(async () => {
+		if (!data.liffId) return;
+
+		let liff: Liff;
+		try {
+			liff = await loadSdk();
+			await liff.init({ liffId: data.liffId });
+			if (!liff.isLoggedIn()) return;
+		} catch (error) {
+			// Nobody asked for anything yet. Someone who came to scan the QR
+			// should not be met with a red box about a service they never used.
+			console.error('[liff] could not prepare LINE Login:', error);
 			return;
 		}
+
+		// Past here LINE has already granted a session, so a failure is worth
+		// showing — "you have no account yet" is what the QR below is for.
+		liffBusy = true;
+		try {
+			await exchangeToken(liff);
+		} catch (error) {
+			liffError = error instanceof Error ? error.message : 'เข้าสู่ระบบไม่สำเร็จ';
+		} finally {
+			liffBusy = false;
+		}
+	});
+
+	async function loginWithLine() {
 		liffBusy = true;
 		liffError = '';
 		try {
-			await liff.init({ liffId: data.liffId, withLoginOnExternalBrowser: true });
-			if (!liff.isLoggedIn()) return;
-			const accessToken = liff.getAccessToken();
-			if (!accessToken) throw new Error('ไม่ได้รับ access token จาก LINE');
-			const response = await fetch('/api/auth/line', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ accessToken })
-			});
-			if (!response.ok) {
-				// Surface the server's own reason — "you have no account yet" is
-				// actionable, and the QR to fix it is right below this message.
-				const body = await response.json().catch(() => null);
-				throw new Error(body?.message ?? 'ยืนยันตัวตนไม่สำเร็จ');
+			const liff = await loadSdk();
+			await liff.init({ liffId: data.liffId });
+			// Explicit rather than `withLoginOnExternalBrowser`, which would send
+			// every visitor to LINE on arrival — including someone who came to
+			// scan the QR because they have no account yet.
+			if (!liff.isLoggedIn()) {
+				liff.login({ redirectUri: window.location.href });
+				return;
 			}
-			window.location.assign('/');
+			await exchangeToken(liff);
 		} catch (error) {
 			liffError = error instanceof Error ? error.message : 'เปิด LINE Login ไม่สำเร็จ';
 		} finally {
@@ -59,7 +118,7 @@
 
 		{#if data.liffId}
 			<button class="line-login" type="button" onclick={loginWithLine} disabled={liffBusy}>
-				{liffBusy ? 'กำลังเปิด LINE…' : 'เข้าสู่ระบบด้วย LINE'}
+				{liffBusy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบด้วย LINE'}
 			</button>
 			<p class="hint">ไม่ต้องตั้งรหัสผ่าน ใช้บัญชี LINE ของคุณเอง</p>
 		{/if}
