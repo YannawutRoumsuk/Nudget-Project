@@ -90,7 +90,8 @@ export function helpText(): string {
 		'  งบ — ดูเงินที่ยังใช้ได้ต่อวัน',
 		'  บิล — ดูรายการที่ยังต้องจ่าย',
 		'  ลบ — ลบรายการล่าสุด',
-		'  ไอดี — ดู LINE userId ของคุณ'
+		'  ไอดี — ดู LINE userId ของคุณ',
+		'  สมาชิก — ดูคนที่ใช้บอทนี้ (เจ้าของเท่านั้น)'
 	].join('\n');
 }
 
@@ -102,7 +103,7 @@ export function welcomeText(): string {
 		'เริ่มง่าย ๆ: พิมพ์ “ข้าว 60” เพื่อบันทึกรายจ่าย',
 		'ส่งรูปสลิป แล้วตอบว่าเป็นค่าอะไรได้เลย',
 		'',
-		'ถ้ายังเข้าใช้ไม่ได้ พิมพ์ “ไอดี” แล้วส่งรหัสให้เจ้าของบอทเพื่อเปิดบัญชี'
+		'บัญชีของคุณเป็นส่วนตัว คนอื่นมองไม่เห็นรายการของคุณ'
 	].join('\n');
 }
 
@@ -118,11 +119,63 @@ export function unknownText(): string {
 	].join('\n');
 }
 
-export function notAllowedText(userId: string): string {
+export function joinedText(): string {
 	return [
-		'🔒 บอทนี้ตั้งค่าให้ใช้ได้เฉพาะคนที่ได้รับสิทธิ์',
+		'🎉 เปิดบัญชีให้แล้ว ยินดีต้อนรับ',
 		'',
-		'ถ้านี่คือบอทของคุณ เพิ่ม id นี้ต่อท้าย LINE_ALLOWED_USER_ID (คั่นด้วย ,):',
+		'บัญชีนี้เป็นของคุณคนเดียว คนอื่นมองไม่เห็นรายการของคุณ',
+		'',
+		'ลองพิมพ์ “ข้าว 60” เพื่อบันทึกรายจ่ายแรก',
+		'หรือพิมพ์ “ช่วย” เพื่อดูวิธีใช้ทั้งหมด'
+	].join('\n');
+}
+
+export function revokedText(): string {
+	return '🚫 บัญชีนี้ถูกปิดการใช้งานโดยเจ้าของบอท';
+}
+
+/** What an owner sees the moment a stranger adds the bot. */
+export function newMemberText(displayName: string, lineUserId: string, joinedAt: Date): string {
+	return [
+		'👤 มีคนใหม่เริ่มใช้ Nudget',
+		'',
+		`ชื่อ LINE: ${displayName.trim() || '(ไม่ทราบชื่อ)'}`,
+		`เวลา: ${formatThaiShortDate(joinedAt)} ${formatThaiTime(joinedAt)} น.`,
+		`LINE id: ${lineUserId}`,
+		'',
+		'ดูรายชื่อทั้งหมดหรือปิดสิทธิ์ได้ที่หน้า “สมาชิก” บนเว็บ'
+	].join('\n');
+}
+
+export interface MemberLine {
+	displayName: string;
+	lineUserId: string;
+	active: boolean;
+	joinedAt: Date;
+	transactionCount: number;
+	lastActivityAt: Date | null;
+}
+
+export function membersText(members: MemberLine[]): string {
+	if (members.length === 0) return '👥 ยังไม่มีสมาชิก';
+	const lines = [`👥 สมาชิก ${members.filter((m) => m.active).length} คนที่ใช้งานอยู่`, ''];
+	for (const member of members.slice(0, 20)) {
+		const name = member.displayName.trim() || member.lineUserId.slice(0, 10);
+		const last = member.lastActivityAt ? formatThaiShortDate(member.lastActivityAt) : 'ยังไม่เคยบันทึก';
+		lines.push(
+			`${member.active ? '•' : '✕'} ${name}`,
+			`   เข้ามา ${formatThaiShortDate(member.joinedAt)} · ${member.transactionCount} รายการ · ล่าสุด ${last}`
+		);
+	}
+	if (members.length > 20) lines.push('', `และอีก ${members.length - 20} คน — ดูทั้งหมดบนเว็บ`);
+	return lines.join('\n');
+}
+
+export function setupText(userId: string): string {
+	return [
+		'🔧 บอทยังไม่ได้ตั้งค่าเจ้าของ',
+		'',
+		'ใส่ id นี้ใน LINE_ALLOWED_USER_ID:',
 		userId
 	].join('\n');
 }

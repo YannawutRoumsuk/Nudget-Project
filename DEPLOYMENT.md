@@ -23,7 +23,7 @@ Railway Cron (วันละครั้ง) --- private network ---- PostgreSQ
 
 1. ติดตั้ง dependencies จาก lockfile
 2. ตรวจ Svelte/TypeScript
-3. รัน unit และ handler tests
+3. รัน unit, handler และ integration tests (มี PostgreSQL service ให้)
 4. production build
 5. สร้าง Docker imageรวม OCR language data
 
@@ -61,14 +61,16 @@ OCR_MODE=inline
 REMINDER_MODE=cron
 LINE_CHANNEL_SECRET=<secret>
 LINE_CHANNEL_ACCESS_TOKEN=<token>
-LINE_ALLOWED_USER_ID=<owner-user-id>[,<second-user-id>...]
+LINE_ALLOWED_USER_ID=<owner-user-id>[,<co-owner-user-id>...]
 LIFF_ID=<liff-id>
 DASHBOARD_PASSWORD=<password>
 SESSION_SECRET=<random-64-hex>
 LLM_PROVIDER=none
 ```
 
-`LINE_ALLOWED_USER_ID` รับหลาย id คั่นด้วย comma และแต่ละคนได้บัญชีแยกกัน `LIFF_ID` จำเป็นสำหรับ LINE login บนเว็บ ส่วน `DASHBOARD_PASSWORD` ใช้ได้เฉพาะตอนมี id เดียว
+`LINE_ALLOWED_USER_ID` คือรายชื่อ **เจ้าของ** คั่นด้วย comma — คนอื่นได้บัญชีเองด้วยการแอดบอทเป็นเพื่อน เจ้าของจะได้รับแจ้งทุกครั้งที่มีคนใหม่ และดู/ปิดสิทธิ์ได้ที่หน้า `/members` `LIFF_ID` จำเป็นสำหรับ LINE login บนเว็บ ส่วน `DASHBOARD_PASSWORD` ใช้ได้เฉพาะตอนมีเจ้าของคนเดียว
+
+ตั้ง LINE OA ไม่ให้ค้นหาเจอ เพราะลิงก์แอดเพื่อนคือตัวกั้นเดียวว่าใครจะเข้าถึงบอทได้
 
 ### reminders
 

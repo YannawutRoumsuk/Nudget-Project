@@ -42,9 +42,15 @@ export const users = pgTable('users', {
 	id: serial('id').primaryKey(),
 	lineUserId: text('line_user_id').notNull().unique(),
 	displayName: text('display_name').notNull().default(''),
+	/**
+	 * Revoking access flips this rather than deleting the row — a delete would
+	 * cascade away every baht the person ever recorded.
+	 */
+	active: boolean('active').notNull().default(true),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
+
 
 const ownerId = () =>
 	integer('user_id')
