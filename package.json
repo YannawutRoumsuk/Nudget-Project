@@ -26,7 +26,9 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:push": "drizzle-kit push",
 		"db:seed": "bun run scripts/seed.ts",
-		"db:setup": "bun run db:up && bun run db:push && bun run db:seed"
+		"db:setup": "bun run db:up && bun run db:push && bun run db:seed",
+		"db:backup": "bash scripts/backup-postgres.sh",
+		"db:restore-check": "bash scripts/verify-postgres-backup.sh"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.7",
