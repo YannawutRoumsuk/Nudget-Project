@@ -58,7 +58,7 @@ async function setup() {
 	const token = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim();
 	if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is required for rich menu setup');
 	const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-	const created = await fetch('https://api.line.me/v2/bot/richmenu', { method: 'POST', headers, body: JSON.stringify({ size: { width: WIDTH, height: HEIGHT }, selected: true, name: 'Spendbot Thai menu', chatBarText: 'เมนู', areas: actions() }) });
+	const created = await fetch('https://api.line.me/v2/bot/richmenu', { method: 'POST', headers, body: JSON.stringify({ size: { width: WIDTH, height: HEIGHT }, selected: true, name: 'Nudget Thai menu', chatBarText: 'เมนู', areas: actions() }) });
 	if (!created.ok) throw new Error(`LINE rich menu creation failed (${created.status})`);
 	const { richMenuId } = await created.json() as { richMenuId: string };
 	const image = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'image/png' }, body: await sharp(OUTPUT).png().toBuffer() });

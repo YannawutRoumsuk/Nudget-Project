@@ -5,13 +5,13 @@
 </script>
 
 <svelte:head>
-	<title>เข้าสู่ระบบ · Spendbot</title>
+	<title>เข้าสู่ระบบ · Nudget</title>
 </svelte:head>
 
 <div class="gate">
 	<div class="plate">
 		<span class="mark" aria-hidden="true">฿</span>
-		<h1>Spendbot</h1>
+		<h1>Nudget</h1>
 		<p class="tagline">สมุดบัญชีส่วนตัวที่คุยผ่าน LINE</p>
 
 		{#if data.configured}

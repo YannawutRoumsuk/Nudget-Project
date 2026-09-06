@@ -5,7 +5,7 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const statusText = $derived(data.analysis.status === 'setup' ? 'กรอกรายรับเพื่อเริ่มวิเคราะห์' : data.analysis.status === 'over' ? 'รายจ่ายรวมเกินงบแล้ว' : data.analysis.status === 'tight' ? 'ช่วงนี้ควรชะลอรายจ่าย' : 'งบเดือนนี้ยังอยู่ในแผน');
 </script>
-<svelte:head><title>แผนเดือน · Spendbot</title></svelte:head>
+<svelte:head><title>แผนเดือน · Nudget</title></svelte:head>
 <section class="head"><div><p class="eyebrow">{data.month}</p><h1>แผนใช้เงินเดือนนี้</h1><p>{statusText}</p></div></section>
 <section class="analysis">
 	<article class="card"><span>เหลือหลังหักบิล</span><strong class="num" class:negative={data.analysis.remaining < 0}>{data.analysis.status === 'setup' ? '—' : `฿${formatNumber(data.analysis.remaining)}`}</strong></article>

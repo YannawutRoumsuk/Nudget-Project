@@ -19,7 +19,7 @@
 		<header class="masthead">
 			<a href="/" class="wordmark">
 				<span class="mark" aria-hidden="true">฿</span>
-				<span class="name">Spendbot</span>
+				<span class="name">Nudget</span>
 			</a>
 
 			<nav aria-label="หน้าหลัก">

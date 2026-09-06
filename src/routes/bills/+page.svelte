@@ -7,7 +7,7 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const methods = [{id:'bank',label:'โอน/บัญชี'},{id:'cash',label:'เงินสด'},{id:'credit_card',label:'บัตรเครดิต'},{id:'wallet',label:'วอลเล็ต'}];
 </script>
-<svelte:head><title>บิล · Spendbot</title></svelte:head>
+<svelte:head><title>บิล · Nudget</title></svelte:head>
 <section class="head"><div><p class="eyebrow">รายการที่ต้องจ่าย</p><h1>บิลและค่าใช้จ่ายล่วงหน้า</h1><p>รองรับทั้งรายเดือน จ่ายครั้งเดียว และยอดบัตรเครดิต</p></div></section>
 {#if form?.message}<p class="notice">{form.message}</p>{/if}
 <details class="card add" open={data.bills.length === 0}>

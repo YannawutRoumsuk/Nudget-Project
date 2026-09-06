@@ -31,7 +31,7 @@
 </script>
 
 <svelte:head>
-	<title>ภาพรวม · Spendbot</title>
+	<title>ภาพรวม · Nudget</title>
 	<meta name="description" content="แดชบอร์ดรายรับรายจ่ายส่วนตัว" />
 </svelte:head>
 

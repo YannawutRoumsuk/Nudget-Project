@@ -97,7 +97,7 @@ export function helpText(): string {
 /** Kept deliberately short: this is the first message after someone adds the bot. */
 export function welcomeText(): string {
 	return [
-		'👋 ยินดีต้อนรับ Spendbot',
+		'👋 ยินดีต้อนรับ Nudget',
 		'',
 		'เริ่มง่าย ๆ: พิมพ์ “ข้าว 60” เพื่อบันทึกรายจ่าย',
 		'ส่งรูปสลิป แล้วตอบว่าเป็นค่าอะไรได้เลย',

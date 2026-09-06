@@ -8,7 +8,7 @@
 	const timeValue = $derived(`${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`);
 </script>
 
-<svelte:head><title>แก้รายการ · Spendbot</title></svelte:head>
+<svelte:head><title>แก้รายการ · Nudget</title></svelte:head>
 <section class="page-head"><p class="eyebrow">รายการ #{data.item.id}</p><h1>แก้ไขรายการ</h1></section>
 <form method="POST" class="card form-card">
 	{#if form?.message}<p class="error">{form.message}</p>{/if}

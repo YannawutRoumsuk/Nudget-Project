@@ -29,7 +29,7 @@
 </script>
 
 <svelte:head>
-	<title>รายการ · Spendbot</title>
+	<title>รายการ · Nudget</title>
 </svelte:head>
 
 <section class="head">
