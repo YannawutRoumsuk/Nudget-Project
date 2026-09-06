@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { EXPENSE_CATEGORIES } from '$lib/categories';
 import { validateBillSchedule } from '$lib/bills';
+import { requireUserId } from '$lib/server/auth';
 import { createBill, listBills, markBillPaid, unmarkBillPaid, updateBill } from '$lib/server/db/bills';
 import { fromBangkok } from '$lib/utils/date';
 import type { BillRecurrence, PaymentMethod } from '$lib/server/db/schema';
@@ -26,31 +27,37 @@ function parseForm(form: FormData) {
 		dueDay: recurrence === 'monthly' ? dueDay : null, dueDate: recurrence === 'once' ? dueDate : null, active } };
 }
 
-export const load: PageServerLoad = async () => ({ bills: await listBills(new Date(), true) });
+export const load: PageServerLoad = async ({ locals }) => ({
+	bills: await listBills(requireUserId(locals), new Date(), true)
+});
 
 export const actions: Actions = {
-	create: async ({ request }) => {
+	create: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
 		const parsed = parseForm(await request.formData());
 		if (!parsed.valid) return fail(400, { message: 'กรอกชื่อ ยอด และวันจ่ายให้ครบ' });
-		await createBill(parsed.values);
+		await createBill({ ...parsed.values, userId });
 		redirect(303, '/bills');
 	},
-	update: async ({ request }) => {
+	update: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		const parsed = parseForm(form);
 		if (!Number.isInteger(id) || !parsed.valid) return fail(400, { message: 'ข้อมูลบิลไม่ถูกต้อง' });
-		if (!await updateBill(id, parsed.values)) return fail(404, { message: 'ไม่พบบิลนี้' });
+		if (!await updateBill(id, userId, parsed.values)) return fail(404, { message: 'ไม่พบบิลนี้' });
 		redirect(303, '/bills');
 	},
-	paid: async ({ request }) => {
+	paid: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
 		const id = Number((await request.formData()).get('id'));
-		if (!Number.isInteger(id) || !await markBillPaid(id)) return fail(404, { message: 'ไม่พบบิลนี้' });
+		if (!Number.isInteger(id) || !await markBillPaid(id, userId)) return fail(404, { message: 'ไม่พบบิลนี้' });
 		redirect(303, '/bills');
 	},
-	unpaid: async ({ request }) => {
+	unpaid: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
 		const id = Number((await request.formData()).get('id'));
-		if (!Number.isInteger(id) || !await unmarkBillPaid(id)) return fail(404, { message: 'ไม่พบการจ่ายบิลนี้' });
+		if (!Number.isInteger(id) || !await unmarkBillPaid(id, userId)) return fail(404, { message: 'ไม่พบการจ่ายบิลนี้' });
 		redirect(303, '/bills');
 	}
 };

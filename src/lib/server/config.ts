@@ -41,6 +41,13 @@ function resolveLlm() {
 	};
 }
 
+function splitList(value: string | undefined): string[] {
+	return (value ?? '')
+		.split(',')
+		.map((item) => item.trim())
+		.filter(Boolean);
+}
+
 function boundedInteger(value: string | undefined, fallback: number, min: number, max: number): number {
 	if (value === undefined || value.trim() === '') return fallback;
 	const parsed = Number(value);
@@ -60,8 +67,12 @@ export const config = {
 	line: {
 		channelSecret: (env.LINE_CHANNEL_SECRET ?? '').trim(),
 		accessToken: (env.LINE_CHANNEL_ACCESS_TOKEN ?? '').trim(),
-		/** Required for ledger access; the identity command works during setup. */
-		allowedUserId: (env.LINE_ALLOWED_USER_ID ?? '').trim()
+		/**
+		 * Comma-separated allowlist. Ledger access requires membership; the
+		 * identity command still works during setup so a new person can read
+		 * their own id off the bot before being added here.
+		 */
+		allowedUserIds: splitList(env.LINE_ALLOWED_USER_ID)
 	},
 	dashboard: {
 		password: (env.DASHBOARD_PASSWORD ?? '').trim(),
@@ -72,6 +83,11 @@ export const config = {
 	},
 	llm: resolveLlm()
 };
+
+/** The allowlist is the only thing standing between a stranger and the ledger. */
+export function isAllowedLineUser(lineUserId: string): boolean {
+	return Boolean(lineUserId) && config.line.allowedUserIds.includes(lineUserId);
+}
 
 /** Throws on the misconfigurations that would silently break the bot. */
 export function assertLineConfigured(): void {

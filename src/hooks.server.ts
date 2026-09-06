@@ -2,11 +2,12 @@ import { redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit';
 import { SESSION_COOKIE, verifySessionToken } from '$lib/server/auth';
 import { building } from '$app/environment';
-import { config } from '$lib/server/config';
+import { config, isAllowedLineUser } from '$lib/server/config';
+import { getUserByLineId } from '$lib/server/db/users';
 import { startReminderWorker } from '$lib/server/reminders';
 
 const runtime = globalThis as typeof globalThis & { __spendbotReminderWorkerStarted?: boolean };
-if (!building && process.env.NODE_ENV !== 'test' && config.reminders.mode === 'timer' && config.databaseUrl && config.line.accessToken && config.line.allowedUserId && !runtime.__spendbotReminderWorkerStarted) {
+if (!building && process.env.NODE_ENV !== 'test' && config.reminders.mode === 'timer' && config.databaseUrl && config.line.accessToken && config.line.allowedUserIds.length > 0 && !runtime.__spendbotReminderWorkerStarted) {
 	runtime.__spendbotReminderWorkerStarted = true;
 	startReminderWorker();
 }
@@ -15,8 +16,14 @@ if (!building && process.env.NODE_ENV !== 'test' && config.reminders.mode === 't
 const PUBLIC_PREFIXES = ['/login', '/api/line', '/api/auth/line'];
 
 export const handle: Handle = async ({ event, resolve }) => {
-	event.locals.lineUserId = verifySessionToken(event.cookies.get(SESSION_COOKIE));
-	event.locals.authed = Boolean(event.locals.lineUserId);
+	const lineUserId = verifySessionToken(event.cookies.get(SESSION_COOKIE));
+	// The cookie only proves which LINE account signed in. The ledger row it maps
+	// to is what every page filters on, so resolve it here once and never let a
+	// route derive an owner from user-supplied input.
+	const user = lineUserId && isAllowedLineUser(lineUserId) ? await getUserByLineId(lineUserId) : null;
+	event.locals.lineUserId = user ? user.lineUserId : null;
+	event.locals.userId = user?.id ?? null;
+	event.locals.authed = Boolean(user);
 
 	const isPublic = PUBLIC_PREFIXES.some((prefix) => event.url.pathname.startsWith(prefix));
 	if (!isPublic && !event.locals.authed) {

@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { analyzeBudget } from '$lib/budget';
+import { requireUserId } from '$lib/server/auth';
 import { getUnpaidBillTotal } from '$lib/server/db/bills';
 import { getMonthlyPlan, saveMonthlyPlan } from '$lib/server/db/plans';
 import { getByCategory, getPaymentMethodTotal, getTotals } from '$lib/server/db/queries';
@@ -7,13 +8,15 @@ import { addMonths, bangkokMonthKey, bangkokMonthStart, bangkokParts, daysInBang
 import { toNumber } from '$lib/utils/money';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ locals }) => {
+	const userId = requireUserId(locals);
 	const now = new Date();
 	const month = bangkokMonthKey(now);
 	const from = bangkokMonthStart(now);
 	const range = { from, to: addMonths(from, 1) };
 	const [plan, totals, slices, unpaidBills, creditCardSpent] = await Promise.all([
-		getMonthlyPlan(month), getTotals(range), getByCategory(range, 'expense'), getUnpaidBillTotal(now), getPaymentMethodTotal(range, 'credit_card')
+		getMonthlyPlan(userId, month), getTotals(userId, range), getByCategory(userId, range, 'expense'),
+		getUnpaidBillTotal(userId, now), getPaymentMethodTotal(userId, range, 'credit_card')
 	]);
 	const values = {
 		expectedIncome: toNumber(plan?.expectedIncome ?? 0), savingsGoal: toNumber(plan?.savingsGoal ?? 0),
@@ -28,7 +31,8 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-	default: async ({ request }) => {
+	default: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
 		const form = await request.formData();
 		const number = (key: string) => Number(form.get(key));
 		const month = String(form.get('month'));
@@ -37,7 +41,7 @@ export const actions: Actions = {
 		if (!/^\d{4}-\d{2}$/.test(month) || Object.values(values).some((value) => !Number.isFinite(value) || value < 0) || !Number.isInteger(values.commuteDays) || values.commuteDays > 31) {
 			return fail(400, { message: 'ตัวเลขไม่ถูกต้อง' });
 		}
-		await saveMonthlyPlan({ month, expectedIncome: values.expectedIncome.toFixed(2), savingsGoal: values.savingsGoal.toFixed(2),
+		await saveMonthlyPlan({ userId, month, expectedIncome: values.expectedIncome.toFixed(2), savingsGoal: values.savingsGoal.toFixed(2),
 			foodDailyBudget: values.foodDailyBudget.toFixed(2), commuteDailyBudget: values.commuteDailyBudget.toFixed(2), commuteDays: values.commuteDays });
 		return { message: 'บันทึกแผนเดือนนี้แล้ว' };
 	}

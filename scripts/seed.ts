@@ -16,6 +16,33 @@ if (!url) {
 
 const sql = postgres(url, { max: 1, onnotice: () => {} });
 
+/**
+ * The multi-user migration adopts pre-existing rows into one owner, but it can
+ * only guess that owner's LINE id from the ledger. When the ledger never stored
+ * one it writes the `legacy-owner` placeholder; this claims that row for the
+ * first configured account so the owner keeps their history instead of landing
+ * in an empty second ledger on their next login.
+ */
+async function reconcileOwner() {
+	const [owner] = (process.env.LINE_ALLOWED_USER_ID ?? '')
+		.split(',')
+		.map((item) => item.trim())
+		.filter(Boolean);
+	if (!owner) return;
+
+	const claimed = await sql`
+		update users set line_user_id = ${owner}, updated_at = now()
+		where line_user_id = 'legacy-owner'
+			and not exists (select 1 from users where line_user_id = ${owner})
+		returning id
+	`;
+	if (claimed.length > 0) {
+		console.log(`Adopted the legacy ledger into ${owner}`);
+		return;
+	}
+	await sql`insert into users (line_user_id) values (${owner}) on conflict (line_user_id) do nothing`;
+}
+
 try {
 	for (const [index, category] of ALL_CATEGORIES.entries()) {
 		await sql`
@@ -34,6 +61,7 @@ try {
 		`;
 	}
 	console.log(`Seeded ${ALL_CATEGORIES.length} categories`);
+	await reconcileOwner();
 } catch (error) {
 	console.error('Seed failed:', error);
 	process.exitCode = 1;

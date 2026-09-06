@@ -55,9 +55,21 @@ bun run dev               # http://localhost:5173
 4. ใส่ Webhook URL เป็น `https://<tunnel>/api/line/webhook` แล้วกด **Verify**
 5. ปิด *Auto-reply messages* และเปิด *Use webhook* กับ *Webhook redelivery* ในหน้า Messaging API
 6. แอดบอทเป็นเพื่อน แล้วพิมพ์ `ไอดี` — บอทจะตอบ LINE userId กลับมา
-   นำไปใส่ `LINE_ALLOWED_USER_ID` เพื่อล็อกให้ใช้ได้คนเดียว
+   นำไปใส่ `LINE_ALLOWED_USER_ID` เพื่อล็อกว่าใครใช้ได้บ้าง
 
 > ถ้า `LINE_ALLOWED_USER_ID` ว่าง บอทจะยังไม่ให้เข้าถึงบัญชี แต่พิมพ์ `ไอดี` เพื่อดู userId ได้ หลังตั้งค่า `.env` ให้ restart dev server
+
+### หลายคนใช้ร่วมกัน
+
+`LINE_ALLOWED_USER_ID` รับหลาย id คั่นด้วย comma:
+
+```text
+LINE_ALLOWED_USER_ID=Uowner...,Upartner...
+```
+
+แต่ละ id ได้บัญชีของตัวเองแยกกันสมบูรณ์ — รายการ บิล แผนเดือน และสรุปของแต่ละคนมองไม่เห็นกัน และเตือนบิลจะส่งเข้า LINE ของเจ้าของบิลเท่านั้น แถวใน `users` ถูกสร้างอัตโนมัติเมื่อคนนั้นทักบอทหรือ login ผ่าน LIFF ครั้งแรก
+
+ล็อกอินด้วย `DASHBOARD_PASSWORD` บอกไม่ได้ว่าใครเป็นใคร จึงใช้ได้เฉพาะตอนที่มี id เดียวในลิสต์ ถ้ามีมากกว่านั้นต้องเข้าผ่าน LINE login เท่านั้น
 
 ---
 

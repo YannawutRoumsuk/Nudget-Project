@@ -31,17 +31,16 @@ function toBillView(bill: Bill, reference: Date, paid?: { transactionId: number 
 	};
 }
 
-export async function listBills(reference = new Date(), includeInactive = false): Promise<BillView[]> {
-	const rows = includeInactive
-		? await db.select().from(bills).orderBy(asc(bills.dueDay), asc(bills.id))
-		: await db.select().from(bills).where(eq(bills.active, true)).orderBy(asc(bills.dueDay), asc(bills.id));
-	const payments = await db.select().from(billPayments);
+export async function listBills(userId: number, reference = new Date(), includeInactive = false): Promise<BillView[]> {
+	const owned = includeInactive ? eq(bills.userId, userId) : and(eq(bills.userId, userId), eq(bills.active, true));
+	const rows = await db.select().from(bills).where(owned).orderBy(asc(bills.dueDay), asc(bills.id));
+	const payments = await db.select().from(billPayments).where(eq(billPayments.userId, userId));
 	const paidByKey = new Map(payments.map((payment) => [`${payment.billId}:${payment.period}`, payment]));
 	return rows.map((bill) => toBillView(bill, reference, paidByKey.get(`${bill.id}:${billPeriod(bill, reference)}`)));
 }
 
-export async function getBill(id: number): Promise<Bill | null> {
-	const [row] = await db.select().from(bills).where(eq(bills.id, id)).limit(1);
+export async function getBill(id: number, userId: number): Promise<Bill | null> {
+	const [row] = await db.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);
 	return row ?? null;
 }
 
@@ -50,9 +49,17 @@ export async function createBill(values: typeof bills.$inferInsert): Promise<Bil
 	return row;
 }
 
-export async function updateBill(id: number, values: Partial<Omit<typeof bills.$inferInsert, 'id' | 'createdAt'>>): Promise<Bill | null> {
+export async function updateBill(
+	id: number,
+	userId: number,
+	values: Partial<Omit<typeof bills.$inferInsert, 'id' | 'userId' | 'createdAt'>>
+): Promise<Bill | null> {
 	return db.transaction(async (executor) => {
-		const [row] = await executor.update(bills).set({ ...values, updatedAt: new Date() }).where(eq(bills.id, id)).returning();
+		const [row] = await executor
+			.update(bills)
+			.set({ ...values, updatedAt: new Date() })
+			.where(and(eq(bills.id, id), eq(bills.userId, userId)))
+			.returning();
 		if (!row) return null;
 		const period = billPeriod(row, new Date());
 		const [payment] = await executor.select().from(billPayments)
@@ -67,9 +74,9 @@ export async function updateBill(id: number, values: Partial<Omit<typeof bills.$
 	});
 }
 
-export async function markBillPaid(id: number, reference = new Date()): Promise<{ bill: Bill; transactionId: number; existed: boolean } | null> {
+export async function markBillPaid(id: number, userId: number, reference = new Date()): Promise<{ bill: Bill; transactionId: number; existed: boolean } | null> {
 	return db.transaction(async (executor) => {
-		const [bill] = await executor.select().from(bills).where(eq(bills.id, id)).limit(1);
+		const [bill] = await executor.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);
 		if (!bill) return null;
 		const period = billPeriod(bill, reference);
 		const [existing] = await executor
@@ -80,6 +87,7 @@ export async function markBillPaid(id: number, reference = new Date()): Promise<
 			return { bill, transactionId: existing.transactionId, existed: true };
 		}
 		const [transaction] = await executor.insert(transactions).values({
+			userId: bill.userId,
 			kind: 'expense',
 			amount: bill.amount,
 			categoryId: bill.categoryId,
@@ -94,15 +102,15 @@ export async function markBillPaid(id: number, reference = new Date()): Promise<
 		if (existing) {
 			await executor.update(billPayments).set({ transactionId: transaction.id, paidAt: reference }).where(eq(billPayments.id, existing.id));
 		} else {
-			await executor.insert(billPayments).values({ billId: bill.id, period, transactionId: transaction.id });
+			await executor.insert(billPayments).values({ userId: bill.userId, billId: bill.id, period, transactionId: transaction.id });
 		}
 		return { bill, transactionId: transaction.id, existed: false };
 	});
 }
 
-export async function unmarkBillPaid(id: number, reference = new Date()): Promise<boolean> {
+export async function unmarkBillPaid(id: number, userId: number, reference = new Date()): Promise<boolean> {
 	return db.transaction(async (executor) => {
-		const [bill] = await executor.select().from(bills).where(eq(bills.id, id)).limit(1);
+		const [bill] = await executor.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);
 		if (!bill) return false;
 		const period = billPeriod(bill, reference);
 		const [payment] = await executor
@@ -117,8 +125,8 @@ export async function unmarkBillPaid(id: number, reference = new Date()): Promis
 	});
 }
 
-export async function getUnpaidBillTotal(reference = new Date()): Promise<number> {
-	const rows = await listBills(reference);
+export async function getUnpaidBillTotal(userId: number, reference = new Date()): Promise<number> {
+	const rows = await listBills(userId, reference);
 	const month = bangkokMonthKey(reference);
 	return rows.filter((bill) => {
 		const due = billDueDate(bill, reference);
