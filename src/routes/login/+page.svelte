@@ -1,11 +1,38 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
 
+	type Liff = { init(config: { liffId: string; withLoginOnExternalBrowser?: boolean }): Promise<void>; isLoggedIn(): boolean; getAccessToken(): string | null };
+
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let liffError = $state('');
+	let liffBusy = $state(false);
+
+	async function loginWithLine() {
+		const liff = (window as Window & { liff?: Liff }).liff;
+		if (!data.liffId || !liff) { liffError = 'LINE Login ยังโหลดไม่เสร็จ ลองอีกครั้ง'; return; }
+		liffBusy = true;
+		liffError = '';
+		try {
+			await liff.init({ liffId: data.liffId, withLoginOnExternalBrowser: true });
+			if (!liff.isLoggedIn()) return;
+			const accessToken = liff.getAccessToken();
+			if (!accessToken) throw new Error('ไม่ได้รับ access token จาก LINE');
+			const response = await fetch('/api/auth/line', {
+				method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accessToken })
+			});
+			if (!response.ok) throw new Error('ยืนยันตัวตนไม่สำเร็จ');
+			window.location.assign('/');
+		} catch (error) {
+			liffError = error instanceof Error ? error.message : 'เปิด LINE Login ไม่สำเร็จ';
+		} finally {
+			liffBusy = false;
+		}
+	}
 </script>
 
 <svelte:head>
 	<title>เข้าสู่ระบบ · Nudget</title>
+	{#if data.liffId}<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>{/if}
 </svelte:head>
 
 <div class="gate">
@@ -13,6 +40,12 @@
 		<span class="mark" aria-hidden="true">฿</span>
 		<h1>Nudget</h1>
 		<p class="tagline">สมุดบัญชีส่วนตัวที่คุยผ่าน LINE</p>
+		{#if data.liffId}
+			<button class="line-login" type="button" onclick={loginWithLine} disabled={liffBusy}>
+				{liffBusy ? 'กำลังเปิด LINE…' : 'เข้าสู่ระบบด้วย LINE'}
+			</button>
+			<p class="divider">หรือใช้รหัสผ่าน</p>
+		{/if}
 
 		{#if data.configured}
 			<form method="POST">
@@ -30,6 +63,7 @@
 		{#if form?.message}
 			<p class="error" role="alert">{form.message}</p>
 		{/if}
+		{#if liffError}<p class="error" role="alert">{liffError}</p>{/if}
 	</div>
 </div>
 
@@ -121,6 +155,9 @@
 	button:hover {
 		transform: translateY(-1px);
 	}
+
+	.line-login { width: 100%; margin: 0 0 0.7rem; background: #06c755; }
+	.divider { margin: 0 0 0.7rem; font-size: var(--text-xs); color: var(--ink-faint); }
 
 	.setup,
 	.error {

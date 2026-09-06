@@ -6,6 +6,7 @@ declare global {
 		interface Locals {
 			/** Set by hooks.server.ts from the signed session cookie. */
 			authed: boolean;
+			lineUserId: string | null;
 		}
 		// interface PageData {}
 		// interface PageState {}

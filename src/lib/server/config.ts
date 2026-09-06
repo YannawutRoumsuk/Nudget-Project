@@ -67,6 +67,9 @@ export const config = {
 		password: (env.DASHBOARD_PASSWORD ?? '').trim(),
 		sessionSecret: (env.SESSION_SECRET ?? '').trim()
 	},
+	liff: {
+		id: (env.LIFF_ID ?? '').trim()
+	},
 	llm: resolveLlm()
 };
 

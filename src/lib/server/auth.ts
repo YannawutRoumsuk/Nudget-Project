@@ -9,21 +9,24 @@ function sign(payload: string): string {
 }
 
 /** Token is `<expiresAtMs>.<hmac>` — stateless, so there is no session table. */
-export function createSessionToken(now = Date.now()): string {
+export function createSessionToken(lineUserId = '', now = Date.now()): string {
 	const expiresAt = now + MAX_AGE_SECONDS * 1000;
-	return `${expiresAt}.${sign(String(expiresAt))}`;
+	const payload = `${lineUserId}.${expiresAt}`;
+	return `${payload}.${sign(payload)}`;
 }
 
-export function verifySessionToken(token: string | undefined, now = Date.now()): boolean {
-	if (!token || !config.dashboard.sessionSecret) return false;
+export function verifySessionToken(token: string | undefined, now = Date.now()): string | null {
+	if (!token || !config.dashboard.sessionSecret) return null;
 
-	const separator = token.lastIndexOf('.');
-	if (separator <= 0) return false;
+	const parts = token.split('.');
+	if (parts.length !== 3) return null;
+	const [lineUserId, expiresRaw, signature] = parts;
+	if (!lineUserId) return null;
 
-	const expiresAt = Number(token.slice(0, separator));
-	if (!Number.isFinite(expiresAt) || expiresAt < now) return false;
+	const expiresAt = Number(expiresRaw);
+	if (!Number.isFinite(expiresAt) || expiresAt < now) return null;
 
-	return safeEqual(token.slice(separator + 1), sign(String(expiresAt)));
+	return safeEqual(signature, sign(`${lineUserId}.${expiresRaw}`)) ? lineUserId : null;
 }
 
 export function checkPassword(input: string): boolean {

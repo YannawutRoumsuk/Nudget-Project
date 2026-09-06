@@ -12,7 +12,8 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = ({ locals, url }) => {
 	if (locals.authed) redirect(303, safeNext(url.searchParams.get('next')));
 	return {
-		configured: Boolean(config.dashboard.password && config.dashboard.sessionSecret)
+		configured: Boolean(config.dashboard.password && config.dashboard.sessionSecret),
+		liffId: config.liff.id
 	};
 };
 
@@ -28,7 +29,7 @@ export const actions: Actions = {
 			return fail(401, { message: 'รหัสผ่านไม่ถูกต้อง' });
 		}
 
-		cookies.set(SESSION_COOKIE, createSessionToken(), {
+		cookies.set(SESSION_COOKIE, createSessionToken(config.line.allowedUserId), {
 			...sessionCookieOptions,
 			secure: url.protocol === 'https:'
 		});
