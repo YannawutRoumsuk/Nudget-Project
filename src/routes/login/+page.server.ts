@@ -18,6 +18,9 @@ export const load: PageServerLoad = ({ locals, url }) => {
 		config.line.allowedUserIds.length === 1;
 	return {
 		liffId,
+		// LINE sends the browser back to this page, so the client finishes the
+		// sign-in and needs to know where the person was originally headed.
+		next: safeNext(url.searchParams.get('next')),
 		passwordLogin,
 		addFriendId: config.line.addFriendId,
 		// Only nag about setup when there is genuinely no way to sign in at all.
