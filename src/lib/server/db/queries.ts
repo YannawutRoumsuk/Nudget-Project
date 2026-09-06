@@ -6,8 +6,8 @@ import { toNumber } from '$lib/utils/money';
 
 export type DbExecutor = Pick<typeof db, 'insert' | 'select' | 'update' | 'delete'>;
 
-export async function claimReminderDelivery(key: string, executor: DbExecutor = db): Promise<boolean> {
-	const rows = await executor.insert(reminderDeliveries).values({ key }).onConflictDoNothing().returning({ key: reminderDeliveries.key });
+export async function claimReminderDelivery(key: string, userId: number, executor: DbExecutor = db): Promise<boolean> {
+	const rows = await executor.insert(reminderDeliveries).values({ key, userId }).onConflictDoNothing().returning({ key: reminderDeliveries.key });
 	return rows.length > 0;
 }
 
@@ -46,8 +46,12 @@ export interface DayPoint {
  */
 const BANGKOK_DAY = sql`to_char(${transactions.occurredAt} AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD')`;
 
-function inRange({ from, to }: Range) {
-	return and(gte(transactions.occurredAt, from), lt(transactions.occurredAt, to));
+/**
+ * The owner filter belongs in the same helper as the date window so that adding
+ * a new aggregate cannot accidentally read across tenants.
+ */
+function ownedInRange(userId: number, { from, to }: Range) {
+	return and(eq(transactions.userId, userId), gte(transactions.occurredAt, from), lt(transactions.occurredAt, to));
 }
 
 export async function insertTransaction(tx: NewTransaction, executor: DbExecutor = db): Promise<Transaction> {
@@ -55,38 +59,49 @@ export async function insertTransaction(tx: NewTransaction, executor: DbExecutor
 	return row;
 }
 
-export async function deleteTransaction(id: number, executor: DbExecutor = db): Promise<boolean> {
-	const deleted = await executor.delete(transactions).where(eq(transactions.id, id)).returning({
-		id: transactions.id
-	});
+export async function deleteTransaction(id: number, userId: number, executor: DbExecutor = db): Promise<boolean> {
+	const deleted = await executor
+		.delete(transactions)
+		.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+		.returning({ id: transactions.id });
 	return deleted.length > 0;
 }
 
-export async function getTransaction(id: number): Promise<Transaction | null> {
-	const [row] = await db.select().from(transactions).where(eq(transactions.id, id)).limit(1);
+export async function getTransaction(id: number, userId: number): Promise<Transaction | null> {
+	const [row] = await db
+		.select()
+		.from(transactions)
+		.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+		.limit(1);
 	return row ?? null;
 }
 
 export async function updateTransaction(
 	id: number,
+	userId: number,
 	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod'>>
 ): Promise<Transaction | null> {
-	const [row] = await db.update(transactions).set(values).where(eq(transactions.id, id)).returning();
+	const [row] = await db
+		.update(transactions)
+		.set(values)
+		.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+		.returning();
 	return row ?? null;
 }
 
-export async function deleteLatestTransaction(executor: DbExecutor = db): Promise<Transaction | null> {
+export async function deleteLatestTransaction(userId: number, executor: DbExecutor = db): Promise<Transaction | null> {
 	const [latest] = await executor
 		.select()
 		.from(transactions)
+		.where(eq(transactions.userId, userId))
 		.orderBy(desc(transactions.createdAt), desc(transactions.id))
 		.limit(1);
 	if (!latest) return null;
-	await deleteTransaction(latest.id, executor);
+	await deleteTransaction(latest.id, userId, executor);
 	return latest;
 }
 
-export async function getTotals(range: Range, executor: DbExecutor = db): Promise<Totals> {
+export async function getTotals(userId: number, range: Range, executor: DbExecutor = db): Promise<Totals> {
 	const rows = await executor
 		.select({
 			kind: transactions.kind,
@@ -94,7 +109,7 @@ export async function getTotals(range: Range, executor: DbExecutor = db): Promis
 			count: sql<string>`count(*)`
 		})
 		.from(transactions)
-		.where(inRange(range))
+		.where(ownedInRange(userId, range))
 		.groupBy(transactions.kind);
 
 	const totals: Totals = { income: 0, expense: 0, net: 0, count: 0 };
@@ -108,14 +123,14 @@ export async function getTotals(range: Range, executor: DbExecutor = db): Promis
 	return totals;
 }
 
-export async function getPaymentMethodTotal(range: Range, paymentMethod: PaymentMethod, executor: DbExecutor = db): Promise<number> {
+export async function getPaymentMethodTotal(userId: number, range: Range, paymentMethod: PaymentMethod, executor: DbExecutor = db): Promise<number> {
 	const [row] = await executor.select({ total: sql<string>`coalesce(sum(${transactions.amount}), 0)` })
 		.from(transactions)
-		.where(and(inRange(range), eq(transactions.kind, 'expense'), eq(transactions.paymentMethod, paymentMethod)));
+		.where(and(ownedInRange(userId, range), eq(transactions.kind, 'expense'), eq(transactions.paymentMethod, paymentMethod)));
 	return toNumber(row?.total ?? 0);
 }
 
-export async function getByCategory(range: Range, kind: TxKind, executor: DbExecutor = db): Promise<CategorySlice[]> {
+export async function getByCategory(userId: number, range: Range, kind: TxKind, executor: DbExecutor = db): Promise<CategorySlice[]> {
 	const rows = await executor
 		.select({
 			categoryId: transactions.categoryId,
@@ -123,7 +138,7 @@ export async function getByCategory(range: Range, kind: TxKind, executor: DbExec
 			count: sql<string>`count(*)`
 		})
 		.from(transactions)
-		.where(and(inRange(range), eq(transactions.kind, kind)))
+		.where(and(ownedInRange(userId, range), eq(transactions.kind, kind)))
 		.groupBy(transactions.categoryId)
 		.orderBy(desc(sql`sum(${transactions.amount})`));
 
@@ -134,7 +149,7 @@ export async function getByCategory(range: Range, kind: TxKind, executor: DbExec
 	}));
 }
 
-export async function getDailySeries(range: Range): Promise<DayPoint[]> {
+export async function getDailySeries(userId: number, range: Range): Promise<DayPoint[]> {
 	const rows = await db
 		.select({
 			day: sql<string>`${BANGKOK_DAY}`,
@@ -142,7 +157,7 @@ export async function getDailySeries(range: Range): Promise<DayPoint[]> {
 			total: sql<string>`sum(${transactions.amount})`
 		})
 		.from(transactions)
-		.where(inRange(range))
+		.where(ownedInRange(userId, range))
 		.groupBy(sql`1`, transactions.kind)
 		.orderBy(sql`1`);
 
@@ -157,10 +172,11 @@ export async function getDailySeries(range: Range): Promise<DayPoint[]> {
 }
 
 export async function listTransactions(
+	userId: number,
 	range: Range,
 	options: { limit?: number; kind?: TxKind; categoryId?: string } = {}
 ): Promise<Transaction[]> {
-	const filters = [inRange(range)];
+	const filters = [ownedInRange(userId, range)];
 	if (options.kind) filters.push(eq(transactions.kind, options.kind));
 	if (options.categoryId) filters.push(eq(transactions.categoryId, options.categoryId));
 

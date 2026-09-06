@@ -1,5 +1,15 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { error } from '@sveltejs/kit';
 import { config } from './config';
+
+/**
+ * The single accessor every page and action uses to learn whose ledger it is
+ * reading. Routes must never take an owner from a query string or form field.
+ */
+export function requireUserId(locals: App.Locals): number {
+	if (!locals.userId) error(401, 'ต้องเข้าสู่ระบบก่อน');
+	return locals.userId;
+}
 
 export const SESSION_COOKIE = 'spendbot_session';
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30;

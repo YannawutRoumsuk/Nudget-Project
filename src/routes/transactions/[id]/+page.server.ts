@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { ALL_CATEGORIES } from '$lib/categories';
+import { requireUserId } from '$lib/server/auth';
 import { getTransaction, updateTransaction } from '$lib/server/db/queries';
 import { bangkokParts, fromBangkok } from '$lib/utils/date';
 import type { PaymentMethod, TxKind } from '$lib/server/db/schema';
@@ -7,14 +8,15 @@ import type { Actions, PageServerLoad } from './$types';
 
 const METHODS: PaymentMethod[] = ['bank', 'cash', 'credit_card', 'wallet'];
 
-export const load: PageServerLoad = async ({ params }) => {
-	const item = await getTransaction(Number(params.id));
+export const load: PageServerLoad = async ({ params, locals }) => {
+	const item = await getTransaction(Number(params.id), requireUserId(locals));
 	if (!item) redirect(303, '/transactions');
 	return { item };
 };
 
 export const actions: Actions = {
-	default: async ({ params, request }) => {
+	default: async ({ params, request, locals }) => {
+		const userId = requireUserId(locals);
 		const form = await request.formData();
 		const kind = String(form.get('kind')) as TxKind;
 		const amount = Number(form.get('amount'));
@@ -32,7 +34,7 @@ export const actions: Actions = {
 		if (!['expense', 'income'].includes(kind) || !Number.isFinite(amount) || amount <= 0 || !category || !METHODS.includes(paymentMethod) || !validDateTime) {
 			return fail(400, { message: 'ข้อมูลไม่ครบหรือไม่ถูกต้อง' });
 		}
-		const updated = await updateTransaction(Number(params.id), {
+		const updated = await updateTransaction(Number(params.id), userId, {
 			kind, amount: amount.toFixed(2), categoryId, note,
 			paymentMethod, occurredAt
 		});

@@ -120,9 +120,9 @@ export function unknownText(): string {
 
 export function notAllowedText(userId: string): string {
 	return [
-		'🔒 บอทนี้ตั้งค่าให้ใช้ได้เฉพาะเจ้าของ',
+		'🔒 บอทนี้ตั้งค่าให้ใช้ได้เฉพาะคนที่ได้รับสิทธิ์',
 		'',
-		'ถ้านี่คือบอทของคุณ ใส่ค่านี้ใน .env:',
-		`LINE_ALLOWED_USER_ID=${userId}`
+		'ถ้านี่คือบอทของคุณ เพิ่ม id นี้ต่อท้าย LINE_ALLOWED_USER_ID (คั่นด้วย ,):',
+		userId
 	].join('\n');
 }

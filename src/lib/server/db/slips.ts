@@ -4,11 +4,11 @@ import { pendingSlips } from './schema';
 import type { PendingSlip } from './schema';
 import type { DbExecutor } from './queries';
 
-export async function getPendingSlip(lineUserId: string, executor: DbExecutor = db): Promise<PendingSlip | null> {
+export async function getPendingSlip(userId: number, executor: DbExecutor = db): Promise<PendingSlip | null> {
 	const [row] = await executor
 		.select()
 		.from(pendingSlips)
-		.where(eq(pendingSlips.lineUserId, lineUserId))
+		.where(eq(pendingSlips.userId, userId))
 		.limit(1);
 	return row ?? null;
 }
@@ -21,6 +21,7 @@ export async function claimPendingSlip(id: number): Promise<PendingSlip | null> 
 	return row ?? null;
 }
 
+/** Worker-side: slips from every user share one queue, oldest first. */
 export async function claimNextPendingSlip(): Promise<PendingSlip | null> {
 	const [next] = await db.select({ id: pendingSlips.id }).from(pendingSlips)
 		.where(eq(pendingSlips.status, 'queued')).orderBy(asc(pendingSlips.createdAt)).limit(1);
@@ -36,10 +37,10 @@ export async function requeueStalePendingSlips(staleBefore: Date): Promise<numbe
 }
 
 export async function replacePendingSlip(
-	values: Pick<typeof pendingSlips.$inferInsert, 'lineUserId' | 'messageId' | 'status'>,
+	values: Pick<typeof pendingSlips.$inferInsert, 'userId' | 'lineUserId' | 'messageId' | 'status'>,
 	executor: DbExecutor = db
 ): Promise<PendingSlip> {
-	await executor.delete(pendingSlips).where(eq(pendingSlips.lineUserId, values.lineUserId));
+	await executor.delete(pendingSlips).where(eq(pendingSlips.userId, values.userId));
 	const [row] = await executor.insert(pendingSlips).values(values).returning();
 	return row;
 }
@@ -56,10 +57,10 @@ export async function updatePendingSlip(
 	return row ?? null;
 }
 
-export async function deletePendingSlip(lineUserId: string, executor: DbExecutor = db): Promise<boolean> {
+export async function deletePendingSlip(userId: number, executor: DbExecutor = db): Promise<boolean> {
 	const rows = await executor
 		.delete(pendingSlips)
-		.where(eq(pendingSlips.lineUserId, lineUserId))
+		.where(eq(pendingSlips.userId, userId))
 		.returning({ id: pendingSlips.id });
 	return rows.length > 0;
 }

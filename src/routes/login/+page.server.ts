@@ -6,13 +6,16 @@ import {
 	sessionCookieOptions
 } from '$lib/server/auth';
 import { config } from '$lib/server/config';
+import { ensureUser } from '$lib/server/db/users';
 import { safeNext } from '$lib/server/redirect';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals, url }) => {
 	if (locals.authed) redirect(303, safeNext(url.searchParams.get('next')));
 	return {
-		configured: Boolean(config.dashboard.password && config.dashboard.sessionSecret),
+		configured:
+			Boolean(config.dashboard.password && config.dashboard.sessionSecret) &&
+			config.line.allowedUserIds.length === 1,
 		liffId: config.liff.id
 	};
 };
@@ -25,11 +28,18 @@ export const actions: Actions = {
 		if (!config.dashboard.sessionSecret) {
 			return fail(503, { message: 'ยังไม่ได้ตั้งค่า SESSION_SECRET ใน .env' });
 		}
+		// A shared password cannot say *who* is signing in. Once more than one
+		// account is allowed it stops being an identity, so LINE login is the
+		// only way in and this path refuses rather than guessing an owner.
+		if (config.line.allowedUserIds.length !== 1) {
+			return fail(403, { message: 'บัญชีนี้มีผู้ใช้หลายคน — เข้าสู่ระบบด้วย LINE เท่านั้น' });
+		}
 		if (!checkPassword(password)) {
 			return fail(401, { message: 'รหัสผ่านไม่ถูกต้อง' });
 		}
 
-		cookies.set(SESSION_COOKIE, createSessionToken(config.line.allowedUserId), {
+		const owner = await ensureUser(config.line.allowedUserIds[0]);
+		cookies.set(SESSION_COOKIE, createSessionToken(owner.lineUserId), {
 			...sessionCookieOptions,
 			secure: url.protocol === 'https:'
 		});

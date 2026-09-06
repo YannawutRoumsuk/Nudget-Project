@@ -61,11 +61,14 @@ OCR_MODE=inline
 REMINDER_MODE=cron
 LINE_CHANNEL_SECRET=<secret>
 LINE_CHANNEL_ACCESS_TOKEN=<token>
-LINE_ALLOWED_USER_ID=<owner-user-id>
+LINE_ALLOWED_USER_ID=<owner-user-id>[,<second-user-id>...]
+LIFF_ID=<liff-id>
 DASHBOARD_PASSWORD=<password>
 SESSION_SECRET=<random-64-hex>
 LLM_PROVIDER=none
 ```
+
+`LINE_ALLOWED_USER_ID` รับหลาย id คั่นด้วย comma และแต่ละคนได้บัญชีแยกกัน `LIFF_ID` จำเป็นสำหรับ LINE login บนเว็บ ส่วน `DASHBOARD_PASSWORD` ใช้ได้เฉพาะตอนมี id เดียว
 
 ### reminders
 
@@ -84,6 +87,15 @@ LLM_PROVIDER=none
 2. ตั้ง LINE Webhook URL เป็น `https://<railway-domain>/api/line/webhook` แล้ว Verify
 3. เปลี่ยน `PUBLIC_BASE_URL` ใน local `.env` เป็น Railway domain แล้วรัน `bun run line:rich-menu --setup`
 4. ทดสอบข้อความ, รูปสลิป, dashboard และรายการเตือน
+
+## migration หลายผู้ใช้ (0003_multi_user)
+
+`bun run start` รัน `db:migrate` แล้วต่อด้วย `db:seed` เสมอ ทั้งสองขั้นจำเป็นสำหรับ migration นี้:
+
+1. `db:migrate` สร้างตาราง `users`, เพิ่ม `user_id` ให้ทุกตารางข้อมูล แล้วยกข้อมูลเดิมทั้งหมดให้เจ้าของคนเดียวเดิม โดยดึง LINE id จาก `transactions.line_user_id` ถ้ามี ไม่มีก็ใช้ placeholder `legacy-owner`
+2. `db:seed` เปลี่ยน `legacy-owner` เป็น id แรกใน `LINE_ALLOWED_USER_ID` — ข้ามขั้นนี้แล้วเจ้าของจะ login ไปเจอบัญชีเปล่าแทนที่จะเป็นประวัติเดิม
+
+ตรวจหลัง deploy ว่า `select line_user_id from users` ตรงกับเจ้าของจริง และไม่มีแถวไหนเหลือ `legacy-owner`
 
 ## คุมค่าใช้จ่าย
 

@@ -5,6 +5,7 @@ import {
 	integer,
 	numeric,
 	pgTable,
+	primaryKey,
 	serial,
 	text,
 	timestamp,
@@ -32,18 +33,42 @@ export const categories = pgTable('categories', {
 	sortOrder: serial('sort_order')
 });
 
-export const monthlyPlans = pgTable('monthly_plans', {
-	month: varchar('month', { length: 7 }).primaryKey(),
-	expectedIncome: numeric('expected_income', { precision: 12, scale: 2 }).notNull().default('0'),
-	savingsGoal: numeric('savings_goal', { precision: 12, scale: 2 }).notNull().default('0'),
-	foodDailyBudget: numeric('food_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
-	commuteDailyBudget: numeric('commute_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
-	commuteDays: integer('commute_days').notNull().default(0),
+/**
+ * One row per LINE account that may use the ledger. Every owned table carries a
+ * `user_id` pointing here — that column is the whole tenant boundary, so a query
+ * that forgets it leaks another person's money.
+ */
+export const users = pgTable('users', {
+	id: serial('id').primaryKey(),
+	lineUserId: text('line_user_id').notNull().unique(),
+	displayName: text('display_name').notNull().default(''),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
 
+const ownerId = () =>
+	integer('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' });
+
+export const monthlyPlans = pgTable(
+	'monthly_plans',
+	{
+		userId: ownerId(),
+		month: varchar('month', { length: 7 }).notNull(),
+		expectedIncome: numeric('expected_income', { precision: 12, scale: 2 }).notNull().default('0'),
+		savingsGoal: numeric('savings_goal', { precision: 12, scale: 2 }).notNull().default('0'),
+		foodDailyBudget: numeric('food_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
+		commuteDailyBudget: numeric('commute_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
+		commuteDays: integer('commute_days').notNull().default(0),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.month] })]
+);
+
 export const bills = pgTable('bills', {
 	id: serial('id').primaryKey(),
+	userId: ownerId(),
 	name: text('name').notNull(),
 	amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
 	categoryId: varchar('category_id', { length: 32 })
@@ -62,6 +87,7 @@ export const transactions = pgTable(
 	'transactions',
 	{
 		id: serial('id').primaryKey(),
+		userId: ownerId(),
 		kind: varchar('kind', { length: 8 }).notNull().$type<TxKind>(),
 		/** Always positive. Direction lives in `kind`, never in the sign. */
 		amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
@@ -80,13 +106,14 @@ export const transactions = pgTable(
 		lineUserId: text('line_user_id'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [index('transactions_occurred_at_idx').on(t.occurredAt)]
+	(t) => [index('transactions_user_occurred_at_idx').on(t.userId, t.occurredAt)]
 );
 
 export const billPayments = pgTable(
 	'bill_payments',
 	{
 		id: serial('id').primaryKey(),
+		userId: ownerId(),
 		billId: integer('bill_id').notNull().references(() => bills.id, { onDelete: 'cascade' }),
 		period: varchar('period', { length: 10 }).notNull(),
 		transactionId: integer('transaction_id').references(() => transactions.id, { onDelete: 'set null' }),
@@ -99,6 +126,7 @@ export const pendingSlips = pgTable(
 	'pending_slips',
 	{
 		id: serial('id').primaryKey(),
+		userId: ownerId(),
 		lineUserId: text('line_user_id').notNull(),
 		messageId: text('message_id').notNull(),
 		status: varchar('status', { length: 12 }).notNull().$type<'queued' | 'processing' | 'ready' | 'failed'>(),
@@ -110,11 +138,12 @@ export const pendingSlips = pgTable(
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [uniqueIndex('pending_slips_line_user_idx').on(t.lineUserId)]
+	(t) => [uniqueIndex('pending_slips_user_idx').on(t.userId)]
 );
 
 export const reminderDeliveries = pgTable('reminder_deliveries', {
 	key: text('key').primaryKey(),
+	userId: ownerId(),
 	sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow()
 });
 
@@ -127,6 +156,7 @@ export const processedEvents = pgTable('processed_events', {
 	processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow()
 });
 
+export type User = typeof users.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;

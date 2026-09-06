@@ -7,6 +7,8 @@ declare global {
 			/** Set by hooks.server.ts from the signed session cookie. */
 			authed: boolean;
 			lineUserId: string | null;
+			/** `users.id` for the signed-in account — the tenant key every query filters on. */
+			userId: number | null;
 		}
 		// interface PageData {}
 		// interface PageState {}

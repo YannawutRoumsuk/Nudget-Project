@@ -5,10 +5,14 @@ const mocks = vi.hoisted(() => ({
 	getTotals: vi.fn(), getByCategory: vi.fn(), getPaymentMethodTotal: vi.fn(), parseMessage: vi.fn(), replyText: vi.fn(),
 	getPendingSlip: vi.fn(), replacePendingSlip: vi.fn(), updatePendingSlip: vi.fn(), deletePendingSlip: vi.fn(),
 	getMessageContent: vi.fn(), pushText: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
-	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
-	config: { line: { allowedUserId: 'owner' }, ocr: { mode: 'inline' } }
+	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), ensureUser: vi.fn(),
+	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' } }
 }));
-vi.mock('$lib/server/config', () => ({ config: mocks.config }));
+vi.mock('$lib/server/config', () => ({
+	config: mocks.config,
+	isAllowedLineUser: (id: string) => mocks.config.line.allowedUserIds.includes(id)
+}));
+vi.mock('$lib/server/db/users', () => ({ ensureUser: mocks.ensureUser }));
 vi.mock('$lib/server/db/queries', () => mocks);
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
@@ -29,6 +33,7 @@ vi.mock('../src/lib/server/line/client', () => ({
 import { handleEvents, type LineEvent } from '../src/lib/server/line/handler';
 
 const executor = {};
+const owner = { id: 42, lineUserId: 'owner', displayName: '' };
 const event: LineEvent = {
 	type: 'message', replyToken: 'reply', webhookEventId: 'event-1',
 	timestamp: Date.parse('2026-09-01T16:59:00Z'),
@@ -38,7 +43,8 @@ const event: LineEvent = {
 
 beforeEach(() => {
 	vi.resetAllMocks();
-	mocks.config.line.allowedUserId = 'owner';
+	mocks.config.line.allowedUserIds = ['owner'];
+	mocks.ensureUser.mockResolvedValue(owner);
 	mocks.parseMessage.mockResolvedValue({ type: 'transaction', tx: {
 		kind: 'expense', amount: 60, categoryId: 'food', note: 'ข้าว',
 		occurredAt: new Date(event.timestamp!), parsedBy: 'rule'
@@ -59,13 +65,13 @@ describe('LINE processing', () => {
 	});
 
 	it('blocks ledger access until the owner is configured', async () => {
-		mocks.config.line.allowedUserId = '';
+		mocks.config.line.allowedUserIds = [];
 		await handleEvents([event]);
 		expect(mocks.parseMessage).not.toHaveBeenCalled();
 		expect(mocks.processEventOnce).not.toHaveBeenCalled();
 	});
 	it('allows identity setup without a database or owner', async () => {
-		mocks.config.line.allowedUserId = '';
+		mocks.config.line.allowedUserIds = [];
 		await handleEvents([{ ...event, message: { id: 'identity', type: 'text', text: 'ไอดี' } }]);
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', 'LINE userId ของคุณคือ\nowner');
 		expect(mocks.processEventOnce).not.toHaveBeenCalled();
@@ -73,7 +79,7 @@ describe('LINE processing', () => {
 	it('records through the transaction executor using original send time', async () => {
 		await handleEvents([event]);
 		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!));
-		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ amount: '60.00', lineUserId: 'owner' }), executor);
+		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ amount: '60.00', lineUserId: 'owner', userId: owner.id }), executor);
 		expect(mocks.replyText).toHaveBeenCalledOnce();
 	});
 	it('does not mutate or reply again for a committed duplicate', async () => {
@@ -99,19 +105,33 @@ describe('LINE processing', () => {
 		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'undo' });
 		mocks.deleteLatestTransaction.mockResolvedValue(null);
 		await handleEvents([event]);
-		expect(mocks.deleteLatestTransaction).toHaveBeenCalledWith(executor);
+		expect(mocks.deleteLatestTransaction).toHaveBeenCalledWith(owner.id, executor);
 	});
 	it('rejects another user before parsing or opening a transaction', async () => {
 		await handleEvents([{ ...event, source: { type: 'user', userId: 'stranger' } }]);
 		expect(mocks.parseMessage).not.toHaveBeenCalled();
 		expect(mocks.processEventOnce).not.toHaveBeenCalled();
 	});
+	it('writes a second allowed account into its own ledger', async () => {
+		mocks.config.line.allowedUserIds = ['owner', 'partner'];
+		mocks.ensureUser.mockResolvedValue({ id: 99, lineUserId: 'partner', displayName: '' });
+		await handleEvents([{ ...event, source: { type: 'user', userId: 'partner' } }]);
+		expect(mocks.ensureUser).toHaveBeenCalledWith('partner');
+		expect(mocks.getPendingSlip).toHaveBeenCalledWith(99);
+		expect(mocks.insertTransaction).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 99, lineUserId: 'partner' }),
+			executor
+		);
+	});
 
 	it('accepts an image and starts slip OCR after replying immediately', async () => {
 		mocks.replacePendingSlip.mockResolvedValue({ id: 7, lineUserId: 'owner', messageId: 'image-1', status: 'queued' });
 		mocks.getMessageContent.mockReturnValue(new Promise(() => {}));
 		await handleEvents([{ ...event, message: { id: 'image-1', type: 'image' } }]);
-		expect(mocks.replacePendingSlip).toHaveBeenCalled();
+		expect(mocks.replacePendingSlip).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: owner.id, lineUserId: 'owner', messageId: 'image-1' }),
+			executor
+		);
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('รับสลิปแล้ว'));
 		expect(mocks.processPendingSlip).toHaveBeenCalledWith(7);
 	});
@@ -124,6 +144,6 @@ describe('LINE processing', () => {
 		await handleEvents([{ ...event, message: { id: 'message-2', type: 'text', text: 'ค่าอาหาร' } }]);
 		expect(mocks.parseMessage).toHaveBeenNthCalledWith(2, 'ค่าอาหาร 100.00', new Date(event.timestamp!));
 		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ paymentMethod: 'bank', parsedBy: 'ocr' }), executor);
-		expect(mocks.deletePendingSlip).toHaveBeenCalledWith('owner', executor);
+		expect(mocks.deletePendingSlip).toHaveBeenCalledWith(owner.id, executor);
 	});
 });

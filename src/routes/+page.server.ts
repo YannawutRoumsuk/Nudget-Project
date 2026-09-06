@@ -10,6 +10,7 @@ import {
 	insertTransaction,
 	listTransactions
 } from '$lib/server/db/queries';
+import { requireUserId } from '$lib/server/auth';
 import { confirmSaved } from '$lib/server/line/messages';
 import { parseMessage } from '$lib/server/parser';
 import { toTxView } from '$lib/server/views';
@@ -18,16 +19,17 @@ import type { Actions, PageServerLoad } from './$types';
 
 const RECENT_LIMIT = 12;
 
-export const load: PageServerLoad = async ({ url }) => {
+export const load: PageServerLoad = async ({ url, locals }) => {
+	const userId = requireUserId(locals);
 	const now = new Date();
 	const range = resolveRange(url.searchParams.get('range') ?? DEFAULT_RANGE, now);
 
 	const [totals, expenseSlices, incomeSlices, series, recent] = await Promise.all([
-		getTotals(range),
-		getByCategory(range, 'expense'),
-		getByCategory(range, 'income'),
-		getDailySeries(range),
-		listTransactions(range, { limit: RECENT_LIMIT })
+		getTotals(userId, range),
+		getByCategory(userId, range, 'expense'),
+		getByCategory(userId, range, 'income'),
+		getDailySeries(userId, range),
+		listTransactions(userId, range, { limit: RECENT_LIMIT })
 	]);
 
 	return {
@@ -43,7 +45,8 @@ export const load: PageServerLoad = async ({ url }) => {
 
 export const actions: Actions = {
 	/** Same parser the LINE bot uses, so both entry points behave identically. */
-	add: async ({ request }) => {
+	add: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
 		const form = await request.formData();
 		const text = String(form.get('text') ?? '').trim();
 		if (!text) return fail(400, { action: 'add', ok: false, message: 'พิมพ์รายการก่อน' });
@@ -59,6 +62,7 @@ export const actions: Actions = {
 
 		const { tx } = outcome;
 		const saved = await insertTransaction({
+			userId,
 			kind: tx.kind,
 			amount: tx.amount.toFixed(2),
 			categoryId: tx.categoryId,
@@ -77,12 +81,13 @@ export const actions: Actions = {
 		};
 	},
 
-	delete: async ({ request }) => {
+	delete: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { action: 'delete', ok: false, message: 'id ไม่ถูกต้อง' });
 
-		const removed = await deleteTransaction(id);
+		const removed = await deleteTransaction(id, userId);
 		if (!removed) return fail(404, { action: 'delete', ok: false, message: 'ไม่พบรายการนี้' });
 		return { action: 'delete', ok: true, message: 'ลบแล้ว' };
 	}
