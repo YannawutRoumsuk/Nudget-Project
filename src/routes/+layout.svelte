@@ -9,6 +9,7 @@
 		{ href: '/transactions', label: 'รายการ' },
 		{ href: '/bills', label: 'บิล' },
 		{ href: '/plan', label: 'แผนเดือน' },
+		{ href: '/export', label: 'ส่งออก' },
 		...(data?.isOwner ? [{ href: '/members', label: 'สมาชิก' }] : [])
 	]);
 
@@ -149,5 +150,28 @@
 	form button:hover {
 		color: var(--ink);
 		border-color: var(--ink-faint);
+	}
+
+	@media (max-width: 700px) {
+		.masthead {
+			flex-wrap: wrap;
+			gap: 0.55rem;
+		}
+
+		nav {
+			order: 3;
+			width: 100%;
+			overflow-x: auto;
+			scrollbar-width: none;
+		}
+
+		nav::-webkit-scrollbar {
+			display: none;
+		}
+
+		nav a {
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
 	}
 </style>
