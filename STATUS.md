@@ -36,10 +36,10 @@
 - Database doctor: env, schema และ seeded categories ผ่าน
 - Browser smoke test: หน้าแผนเดือน หน้าเพิ่มบิล และหน้าแก้รายการเปิดได้ ไม่มี console error และไม่ล้นจอที่ความกว้าง 390px
 - Rich Menu API: สร้าง อัปโหลดรูป 2500x843 และตั้งเป็น default สำเร็จ
+- ย้ายข้อมูล local ไป production สำเร็จ: รายการ 2 รายการและประวัติ LINE event 5 รายการ โดยตรวจสอบ production แล้วพบรายการ 2 รายการ
 
 ## งานที่ยังเหลือ
 
-- ย้ายรายการเดิม 2 รายการจาก PostgreSQL local ไป production หลัง Docker Desktop เปิดได้ ปัจจุบัน Docker ติด stale socket จึงต้องรีสตาร์ต Windows หรือ WSL ก่อน
 - เพิ่ม backup/export และหน้าดูเดือนย้อนหลังแบบเลือกเดือน
 - OCR ของแต่ละธนาคารอาจวางข้อความต่างกัน ถ้ามีสลิปที่อ่านผิดให้นำรูปจริงมาปรับ parser เพิ่ม
 - หากต้องการ LIFF login แบบไม่ต้องใส่รหัสผ่านใน LINE ต้องสร้าง LINE Login หรือ LINE MINI App channel ใน provider เดียวกัน; Messaging API channel อย่างเดียวเพิ่ม LIFF app ไม่ได้
