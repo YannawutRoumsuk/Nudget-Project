@@ -42,8 +42,30 @@ export const users = pgTable('users', {
 	id: serial('id').primaryKey(),
 	lineUserId: text('line_user_id').notNull().unique(),
 	displayName: text('display_name').notNull().default(''),
+	/**
+	 * Revoking access flips this rather than deleting the row — a delete would
+	 * cascade away every baht the person ever recorded.
+	 */
+	active: boolean('active').notNull().default(true),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+/**
+ * Lets an owner admit someone from inside LINE instead of editing an env var
+ * and redeploying. Only the SHA-256 of the code is stored, so a leaked database
+ * dump cannot be replayed into an account.
+ */
+export const userInvites = pgTable('user_invites', {
+	id: serial('id').primaryKey(),
+	codeHash: text('code_hash').notNull().unique(),
+	invitedBy: integer('invited_by')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+	usedAt: timestamp('used_at', { withTimezone: true }),
+	usedBy: integer('used_by').references(() => users.id, { onDelete: 'set null' }),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
 
 const ownerId = () =>
@@ -157,6 +179,7 @@ export const processedEvents = pgTable('processed_events', {
 });
 
 export type User = typeof users.$inferSelect;
+export type UserInvite = typeof userInvites.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;

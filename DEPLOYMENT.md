@@ -68,7 +68,7 @@ SESSION_SECRET=<random-64-hex>
 LLM_PROVIDER=none
 ```
 
-`LINE_ALLOWED_USER_ID` รับหลาย id คั่นด้วย comma และแต่ละคนได้บัญชีแยกกัน `LIFF_ID` จำเป็นสำหรับ LINE login บนเว็บ ส่วน `DASHBOARD_PASSWORD` ใช้ได้เฉพาะตอนมี id เดียว
+`LINE_ALLOWED_USER_ID` คือรายชื่อ **เจ้าของ** คั่นด้วย comma — คนอื่นเข้าใช้ด้วยรหัสเชิญที่เจ้าของสร้างจากในแชท (`เชิญ`) จึงไม่ต้องแก้ตัวแปรนี้ทุกครั้งที่เพิ่มคน `LIFF_ID` จำเป็นสำหรับ LINE login บนเว็บ ส่วน `DASHBOARD_PASSWORD` ใช้ได้เฉพาะตอนมีเจ้าของคนเดียว
 
 ### reminders
 

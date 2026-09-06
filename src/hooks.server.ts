@@ -2,8 +2,8 @@ import { redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit';
 import { SESSION_COOKIE, verifySessionToken } from '$lib/server/auth';
 import { building } from '$app/environment';
-import { config, isAllowedLineUser } from '$lib/server/config';
-import { getUserByLineId } from '$lib/server/db/users';
+import { config } from '$lib/server/config';
+import { resolveMember } from '$lib/server/access';
 import { startReminderWorker } from '$lib/server/reminders';
 
 const runtime = globalThis as typeof globalThis & { __spendbotReminderWorkerStarted?: boolean };
@@ -20,7 +20,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// The cookie only proves which LINE account signed in. The ledger row it maps
 	// to is what every page filters on, so resolve it here once and never let a
 	// route derive an owner from user-supplied input.
-	const user = lineUserId && isAllowedLineUser(lineUserId) ? await getUserByLineId(lineUserId) : null;
+	const user = lineUserId ? await resolveMember(lineUserId) : null;
 	event.locals.lineUserId = user ? user.lineUserId : null;
 	event.locals.userId = user?.id ?? null;
 	event.locals.authed = Boolean(user);

@@ -5,14 +5,20 @@ const mocks = vi.hoisted(() => ({
 	getTotals: vi.fn(), getByCategory: vi.fn(), getPaymentMethodTotal: vi.fn(), parseMessage: vi.fn(), replyText: vi.fn(),
 	getPendingSlip: vi.fn(), replacePendingSlip: vi.fn(), updatePendingSlip: vi.fn(), deletePendingSlip: vi.fn(),
 	getMessageContent: vi.fn(), pushText: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
-	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), ensureUser: vi.fn(),
+	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
+	resolveMember: vi.fn(), createInvite: vi.fn(), redeemInvite: vi.fn(),
 	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' } }
 }));
-vi.mock('$lib/server/config', () => ({
-	config: mocks.config,
-	isAllowedLineUser: (id: string) => mocks.config.line.allowedUserIds.includes(id)
+vi.mock('$lib/server/config', () => ({ config: mocks.config }));
+vi.mock('$lib/server/access', () => ({
+	resolveMember: mocks.resolveMember,
+	isOwner: (id: string) => mocks.config.line.allowedUserIds.includes(id)
 }));
-vi.mock('$lib/server/db/users', () => ({ ensureUser: mocks.ensureUser }));
+vi.mock('$lib/server/db/invites', () => ({
+	createInvite: mocks.createInvite,
+	redeemInvite: mocks.redeemInvite,
+	formatInviteCode: (code: string) => code
+}));
 vi.mock('$lib/server/db/queries', () => mocks);
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
@@ -44,7 +50,8 @@ const event: LineEvent = {
 beforeEach(() => {
 	vi.resetAllMocks();
 	mocks.config.line.allowedUserIds = ['owner'];
-	mocks.ensureUser.mockResolvedValue(owner);
+	mocks.resolveMember.mockImplementation(async (id: string) => (id === 'owner' ? owner : null));
+	mocks.redeemInvite.mockResolvedValue(null);
 	mocks.parseMessage.mockResolvedValue({ type: 'transaction', tx: {
 		kind: 'expense', amount: 60, categoryId: 'food', note: 'ข้าว',
 		occurredAt: new Date(event.timestamp!), parsedBy: 'rule'
@@ -114,14 +121,45 @@ describe('LINE processing', () => {
 	});
 	it('writes a second allowed account into its own ledger', async () => {
 		mocks.config.line.allowedUserIds = ['owner', 'partner'];
-		mocks.ensureUser.mockResolvedValue({ id: 99, lineUserId: 'partner', displayName: '' });
+		mocks.resolveMember.mockResolvedValue({ id: 99, lineUserId: 'partner', displayName: '' });
 		await handleEvents([{ ...event, source: { type: 'user', userId: 'partner' } }]);
-		expect(mocks.ensureUser).toHaveBeenCalledWith('partner');
+		expect(mocks.resolveMember).toHaveBeenCalledWith('partner');
 		expect(mocks.getPendingSlip).toHaveBeenCalledWith(99);
 		expect(mocks.insertTransaction).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 99, lineUserId: 'partner' }),
 			executor
 		);
+	});
+
+	it('opens an account when a stranger sends a valid invite code', async () => {
+		mocks.redeemInvite.mockResolvedValue({ id: 99, lineUserId: 'guest', displayName: '' });
+		await handleEvents([{ ...event, source: { type: 'user', userId: 'guest' }, message: { id: 'm', type: 'text', text: 'ABCDE-23456' } }]);
+		expect(mocks.redeemInvite).toHaveBeenCalledWith('ABCDE-23456', 'guest');
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เปิดบัญชีให้แล้ว'));
+		// Joining must not also record the code as an expense.
+		expect(mocks.processEventOnce).not.toHaveBeenCalled();
+	});
+
+	it('still turns a stranger away when the code does not redeem', async () => {
+		await handleEvents([{ ...event, source: { type: 'user', userId: 'guest' }, message: { id: 'm', type: 'text', text: 'ZZZZZ-99999' } }]);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ได้รับสิทธิ์'));
+		expect(mocks.processEventOnce).not.toHaveBeenCalled();
+	});
+
+	it('issues an invite code to an owner', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'invite' });
+		mocks.createInvite.mockResolvedValue('ABCDE23456');
+		await handleEvents([event]);
+		expect(mocks.createInvite).toHaveBeenCalledWith(owner.id);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ABCDE23456'));
+	});
+
+	it('refuses to let an invited member invite anyone else', async () => {
+		mocks.resolveMember.mockResolvedValue({ id: 99, lineUserId: 'guest', displayName: '' });
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'invite' });
+		await handleEvents([{ ...event, source: { type: 'user', userId: 'guest' } }]);
+		expect(mocks.createInvite).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เฉพาะเจ้าของ'));
 	});
 
 	it('accepts an image and starts slip OCR after replying immediately', async () => {

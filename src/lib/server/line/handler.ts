@@ -1,7 +1,8 @@
 import { FALLBACK_CATEGORY } from '$lib/categories';
 import { analyzeBudget } from '$lib/budget';
 import { billDueDate } from '$lib/bills';
-import { config, isAllowedLineUser } from '$lib/server/config';
+import { config } from '$lib/server/config';
+import { isOwner, resolveMember } from '$lib/server/access';
 import { getUnpaidBillTotal, listBills } from '$lib/server/db/bills';
 import { getMonthlyPlan } from '$lib/server/db/plans';
 import {
@@ -14,7 +15,7 @@ import {
 } from '$lib/server/db/queries';
 import type { DbExecutor } from '$lib/server/db/queries';
 import { deletePendingSlip, getPendingSlip, replacePendingSlip } from '$lib/server/db/slips';
-import { ensureUser } from '$lib/server/db/users';
+import { createInvite, formatInviteCode, redeemInvite } from '$lib/server/db/invites';
 import type { User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseMessage } from '$lib/server/parser';
@@ -35,6 +36,9 @@ import { replyText } from './client';
 import {
 	confirmSaved,
 	helpText,
+	inviteText,
+	inviteDeniedText,
+	joinedText,
 	notAllowedText,
 	summaryText,
 	undoText,
@@ -80,13 +84,20 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		await replyText(event.replyToken, 'ยังไม่ได้ตั้งค่าเจ้าของบัญชี — พิมพ์ ไอดี แล้วนำค่าไปใส่ LINE_ALLOWED_USER_ID ใน .env');
 		return;
 	}
-	if (!isAllowedLineUser(userId)) {
-		await replyText(event.replyToken, notAllowedText(userId));
+	// Owners exist by configuration; everyone else has a row only after redeeming
+	// an invite, so the ledger is created on first use either way.
+	const user = await resolveMember(userId);
+	if (!user) {
+		// A stranger's only useful message is an invite code, and it must be
+		// checked before the rejection so joining never needs a redeploy.
+		const joined = event.message.type === 'text' ? await redeemInvite(text, userId) : null;
+		if (!joined) {
+			await replyText(event.replyToken, notAllowedText(userId));
+			return;
+		}
+		await replyText(event.replyToken, joinedText());
 		return;
 	}
-	// Every allowed account gets its own ledger; the row is created on first use
-	// so nobody has to be provisioned by hand before they can type.
-	const user = await ensureUser(userId);
 	if (event.message.type === 'image') {
 		await handleSlipImage(event, user);
 		return;
@@ -171,6 +182,11 @@ async function runCommand(command: BotCommand, user: User, executor: DbExecutor)
 			return helpText();
 		case 'whoami':
 			return `LINE userId ของคุณคือ\n${user.lineUserId}`;
+		case 'invite':
+			// Only bootstrap owners hand out access, so an invited person cannot
+			// quietly widen the circle further.
+			if (!isOwner(user.lineUserId)) return inviteDeniedText();
+			return inviteText(formatInviteCode(await createInvite(user.id)));
 		case 'undo':
 			return undoText(await deleteLatestTransaction(user.id, executor));
 		case 'bills':

@@ -8,7 +8,9 @@
 
 - LINE webhook ของ Nudget ตรวจลายเซ็น กัน event ซ้ำ และรับเฉพาะ LINE id ที่อยู่ใน `LINE_ALLOWED_USER_ID`
 - แยกข้อมูลรายบุคคล: ตาราง `users` เป็นเจ้าของ transactions, bills, bill_payments, monthly_plans, pending_slips และ reminder_deliveries ทุก query กรองด้วย `user_id`
-- เข้าเว็บด้วย LINE login (LIFF) แล้ว session ผูกกับบัญชีของคนนั้น รหัสผ่าน dashboard ใช้ได้เฉพาะตอนมีผู้ใช้คนเดียว
+- เข้าเว็บด้วย LINE login (LIFF) แล้ว session ผูกกับบัญชีของคนนั้น รหัสผ่าน dashboard ใช้ได้เฉพาะตอนมีเจ้าของคนเดียว
+- เชิญคนใหม่จากในแชทด้วยคำสั่ง `เชิญ` — รหัสใช้ครั้งเดียว หมดอายุ 24 ชม. เก็บเป็น SHA-256 เฉพาะเจ้าของเชิญได้ และเพิ่มคนโดยไม่ต้องแก้ env หรือ redeploy
+- ถอนสิทธิ์ด้วย `users.active = false` โดยไม่ลบข้อมูลการเงินของคนนั้น
 - เตือนบิลส่งเข้า LINE ของเจ้าของบิลแต่ละคน และคนหนึ่งส่งไม่สำเร็จไม่หยุดของคนอื่น
 - พิมพ์รายรับ/รายจ่ายภาษาไทย วันที่ย้อนหลัง หมวดหมู่ และวิธีจ่าย เช่น `กาแฟ 85 บัตรเครดิต`
 - ส่งรูปสลิปโอนเงิน: OCR ไทย/อังกฤษทำงานบนเครื่อง อ่านยอด/วันที่/ผู้รับ แล้วถามค่าใช้จ่ายก่อนบันทึก ผู้ใช้แก้ยอดในข้อความตอบได้
@@ -33,7 +35,7 @@
 
 ## ผลตรวจล่าสุด
 
-- Unit/handler tests: 137 ผ่าน
+- Unit/handler tests: 145 ผ่าน
 - Svelte/TypeScript: 0 errors, 0 warnings
 - Production build: ผ่าน
 - Database doctor: env, schema และ seeded categories ผ่าน
@@ -45,8 +47,7 @@
 
 ## งานที่ยังเหลือ
 
-- ตั้ง Railway variable `LIFF_ID` แล้ว deploy — ยังไม่ได้ตั้ง จึงเข้าเว็บด้วย LINE login ไม่ได้
-- ยังไม่มี onboarding/invite ในตัวแอป การเพิ่มคนใหม่ต้องแก้ `LINE_ALLOWED_USER_ID` แล้ว redeploy
+- ยังไม่มีหน้าเว็บสำหรับดู/ยกเลิกรหัสเชิญที่ออกไปแล้ว ต้องดูจากตาราง `user_invites` เอง
 - เพิ่ม backup/export และหน้าดูเดือนย้อนหลังแบบเลือกเดือน
 - OCR ของแต่ละธนาคารอาจวางข้อความต่างกัน ถ้ามีสลิปที่อ่านผิดให้นำรูปจริงมาปรับ parser เพิ่ม
 - หากต้องการ LIFF login แบบไม่ต้องใส่รหัสผ่านใน LINE ต้องสร้าง LINE Login หรือ LINE MINI App channel ใน provider เดียวกัน; Messaging API channel อย่างเดียวเพิ่ม LIFF app ไม่ได้

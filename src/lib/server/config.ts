@@ -68,9 +68,10 @@ export const config = {
 		channelSecret: (env.LINE_CHANNEL_SECRET ?? '').trim(),
 		accessToken: (env.LINE_CHANNEL_ACCESS_TOKEN ?? '').trim(),
 		/**
-		 * Comma-separated allowlist. Ledger access requires membership; the
-		 * identity command still works during setup so a new person can read
-		 * their own id off the bot before being added here.
+		 * Comma-separated list of bootstrap owners. These accounts exist before
+		 * any database row does and are the only ones that may issue invites;
+		 * everyone else joins by redeeming one, so adding a person never needs
+		 * an env edit. See `$lib/server/access`.
 		 */
 		allowedUserIds: splitList(env.LINE_ALLOWED_USER_ID)
 	},
@@ -83,11 +84,6 @@ export const config = {
 	},
 	llm: resolveLlm()
 };
-
-/** The allowlist is the only thing standing between a stranger and the ledger. */
-export function isAllowedLineUser(lineUserId: string): boolean {
-	return Boolean(lineUserId) && config.line.allowedUserIds.includes(lineUserId);
-}
 
 /** Throws on the misconfigurations that would silently break the bot. */
 export function assertLineConfigured(): void {

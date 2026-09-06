@@ -50,7 +50,11 @@ const COMMANDS: Record<string, BotCommand> = {
 	ยกเลิก: 'undo',
 	whoami: 'whoami',
 	id: 'whoami',
-	ไอดี: 'whoami'
+	ไอดี: 'whoami',
+	invite: 'invite',
+	เชิญ: 'invite',
+	ชวน: 'invite',
+	'เพิ่มคน': 'invite'
 };
 
 export function matchCommand(text: string): BotCommand | null {

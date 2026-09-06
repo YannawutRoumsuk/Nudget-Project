@@ -1,7 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { createSessionToken, SESSION_COOKIE, sessionCookieOptions } from '$lib/server/auth';
-import { config, isAllowedLineUser } from '$lib/server/config';
-import { ensureUser, setDisplayName } from '$lib/server/db/users';
+import { config } from '$lib/server/config';
+import { resolveMember } from '$lib/server/access';
+import { setDisplayName } from '$lib/server/db/users';
 import type { RequestHandler } from './$types';
 
 /** Exchanges a LIFF access token for a signed, httpOnly Nudget session. */
@@ -13,12 +14,12 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 	if (!response.ok) error(401, 'ยืนยันตัวตน LINE ไม่สำเร็จ');
 	const profile = await response.json() as { userId?: string; displayName?: string };
 	if (!profile.userId) error(401, 'LINE ไม่ส่ง user ID กลับมา');
-	// Membership in the allowlist is the only gate. Each account gets its own
-	// ledger row, so a second person sees their own data rather than the owner's.
-	if (!isAllowedLineUser(profile.userId)) {
-		error(403, 'บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้ dashboard');
+	// Membership is the only gate, and it is decided in one place shared with the
+	// bot: a configured owner, or someone who redeemed an invite in LINE.
+	const user = await resolveMember(profile.userId);
+	if (!user) {
+		error(403, 'บัญชีนี้ยังไม่ได้รับสิทธิ์ — ขอรหัสเชิญจากเจ้าของบอท แล้วพิมพ์รหัสในแชท Nudget ก่อน');
 	}
-	const user = await ensureUser(profile.userId);
 	if (profile.displayName && profile.displayName !== user.displayName) {
 		await setDisplayName(user.id, profile.displayName);
 	}

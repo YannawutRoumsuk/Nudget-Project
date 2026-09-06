@@ -33,5 +33,5 @@ export async function setDisplayName(id: number, displayName: string): Promise<v
 }
 
 export async function listUsers(executor: DbExecutor = db): Promise<User[]> {
-	return executor.select().from(users);
+	return executor.select().from(users).where(eq(users.active, true));
 }
