@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getMessageContent: vi.fn(), pushText: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
 	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
-	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' } }
+	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, publicBaseUrl: 'https://nudget.example' }
 }));
 vi.mock('$lib/server/config', () => ({ config: mocks.config }));
 vi.mock('$lib/server/access', () => ({
@@ -168,6 +168,13 @@ describe('LINE processing', () => {
 		await handleEvents([{ ...event, message: { id: 'm', type: 'text', text: 'สมาชิก' } }]);
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เพื่อน'));
 		expect(mocks.processEventOnce).not.toHaveBeenCalled();
+	});
+
+	it('hands out the dashboard link, which is how iPad and desktop reach it', async () => {
+		mocks.config.publicBaseUrl = 'https://nudget.example';
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'web' });
+		await handleEvents([event]);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('https://nudget.example'));
 	});
 
 	it('refuses the member list to anyone who is not an owner', async () => {

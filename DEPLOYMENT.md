@@ -62,6 +62,7 @@ REMINDER_MODE=cron
 LINE_CHANNEL_SECRET=<secret>
 LINE_CHANNEL_ACCESS_TOKEN=<token>
 LINE_ALLOWED_USER_ID=<owner-user-id>[,<co-owner-user-id>...]
+LINE_ADD_FRIEND_ID=@<official-account-id>
 LIFF_ID=<liff-id>
 DASHBOARD_PASSWORD=<password>
 SESSION_SECRET=<random-64-hex>
@@ -71,6 +72,10 @@ LLM_PROVIDER=none
 `LINE_ALLOWED_USER_ID` คือรายชื่อ **เจ้าของ** คั่นด้วย comma — คนอื่นได้บัญชีเองด้วยการแอดบอทเป็นเพื่อน เจ้าของจะได้รับแจ้งทุกครั้งที่มีคนใหม่ และดู/ปิดสิทธิ์ได้ที่หน้า `/members` `LIFF_ID` จำเป็นสำหรับ LINE login บนเว็บ ส่วน `DASHBOARD_PASSWORD` ใช้ได้เฉพาะตอนมีเจ้าของคนเดียว
 
 ตั้ง LINE OA ไม่ให้ค้นหาเจอ เพราะลิงก์แอดเพื่อนคือตัวกั้นเดียวว่าใครจะเข้าถึงบอทได้
+
+`LINE_ADD_FRIEND_ID` ทำให้หน้า login แสดง QR และ @id สำหรับแอดบอท ถ้าเปลี่ยน id ต้องรัน `bun run line:qr` แล้ว commit `static/line-add-friend.svg` ใหม่ เพราะ QR ถูก generate ไว้ล่วงหน้าไม่ได้ดึงจาก LINE ตอนเปิดหน้า
+
+`DASHBOARD_PASSWORD` เข้าสู่ระบบเป็น**เจ้าของ** ไม่ใช่บัญชีของคนที่กรอก และช่องนี้ถูกซ่อนไว้ใต้ “สำหรับแอดมิน” ถ้าไม่ได้ใช้ ให้ลบตัวแปรนี้ทิ้งเพื่อไม่ให้มี shared secret อยู่บนหน้า public
 
 ### reminders
 

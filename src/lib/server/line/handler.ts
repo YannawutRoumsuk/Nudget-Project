@@ -36,6 +36,7 @@ import { getDisplayName, pushText, replyText } from './client';
 import {
 	confirmSaved,
 	helpText,
+	dashboardLinkText,
 	joinedText,
 	membersText,
 	newMemberText,
@@ -235,6 +236,10 @@ async function runCommand(command: BotCommand, user: User, executor: DbExecutor)
 			return helpText();
 		case 'whoami':
 			return `LINE userId ของคุณคือ\n${user.lineUserId}`;
+		case 'web':
+			// The rich menu is a phone-only affordance; on iPad and desktop LINE
+			// this is how someone reaches the dashboard at all.
+			return dashboardLinkText(config.publicBaseUrl);
 		case 'members':
 			// Answered in handleEvent: it reads across users, so it must not run
 			// inside this user's write transaction.

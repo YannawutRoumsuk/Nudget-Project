@@ -18,7 +18,7 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 	// in LINE is sent there, so admission happens in exactly one place.
 	const user = await resolveMember(profile.userId);
 	if (!user) {
-		error(403, 'บัญชีนี้ยังไม่ได้รับสิทธิ์ — แอด Nudget ใน LINE แล้วทักไปหนึ่งข้อความก่อน');
+		error(403, 'ยังไม่มีบัญชี — แอด Nudget เป็นเพื่อนใน LINE ก่อน แล้วกลับมาเข้าสู่ระบบอีกครั้ง');
 	}
 	if (profile.displayName && profile.displayName !== user.displayName) {
 		await setDisplayName(user.id, profile.displayName);

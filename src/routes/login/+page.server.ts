@@ -12,11 +12,16 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals, url }) => {
 	if (locals.authed) redirect(303, safeNext(url.searchParams.get('next')));
+	const liffId = config.liff.id;
+	const passwordLogin =
+		Boolean(config.dashboard.password && config.dashboard.sessionSecret) &&
+		config.line.allowedUserIds.length === 1;
 	return {
-		configured:
-			Boolean(config.dashboard.password && config.dashboard.sessionSecret) &&
-			config.line.allowedUserIds.length === 1,
-		liffId: config.liff.id
+		liffId,
+		passwordLogin,
+		addFriendId: config.line.addFriendId,
+		// Only nag about setup when there is genuinely no way to sign in at all.
+		unconfigured: !liffId && !passwordLogin
 	};
 };
 
