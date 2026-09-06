@@ -13,6 +13,10 @@ Railway web (Serverless) ---- private network ---- Railway PostgreSQL
 Railway Cron (วันละครั้ง) --- private network ---- PostgreSQL
       |
       +---- LINE Push API แจ้งเตือนบิล
+
+Railway Cron backup --------- private network ---- PostgreSQL
+      |
+      +---- Railway Bucket (private logical dumps, 30 วัน)
 ```
 
 โครงนี้ใช้ container ที่เปิดรับเว็บเพียงตัวเดียว และปล่อยให้หลับเมื่อไม่มี traffic ส่วน OCR ใช้ CPU/RAM เฉพาะตอนส่งสลิป ระบบเตือนเป็นงานสั้นวันละครั้ง จึงไม่ต้องมี worker เปิดค้าง
@@ -87,6 +91,56 @@ LLM_PROVIDER=none
 - Serverless: ไม่ต้องเปิด เพราะ cron เริ่มและจบ process เอง
 
 ใช้ `DATABASE_URL` และตัวแปร `LINE_*` ชุดเดียวกับ `web` และตั้ง `REMINDER_DAYS_BEFORE` ตามต้องการ
+
+### postgres-backup
+
+หน้า Railway ของ workspace นี้ยังไม่เปิดให้ใช้ native Backups/PITR จึงใช้ logical dump รายวันไปยัง Railway Bucket แทน ตัว backup เป็น image แยกจากเว็บและทำงานเฉพาะช่วง cron เพื่อลดค่า compute
+
+1. สร้าง Railway Bucket ชื่อ `nudget-backups` ใน region เดียวกับโปรเจกต์
+2. สร้าง service ใหม่จาก GitHub repo/branch `main` ชื่อ `postgres-backup`
+3. ตั้ง `RAILWAY_DOCKERFILE_PATH=ops/postgres-backup/Dockerfile`
+4. ตั้ง Cron schedule `0 3 * * *` (10:00 Asia/Bangkok) และ Restart policy เป็น `Never`
+5. ไม่ต้องสร้าง public domain และไม่ต้องเปิด Serverless เพราะ cron จะเริ่ม ทำงาน และจบ process เอง
+6. ใส่ variable references ต่อไปนี้
+
+```text
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+ENDPOINT=${{nudget-backups.ENDPOINT}}
+BUCKET=${{nudget-backups.BUCKET}}
+AWS_ACCESS_KEY_ID=${{nudget-backups.ACCESS_KEY_ID}}
+AWS_SECRET_ACCESS_KEY=${{nudget-backups.SECRET_ACCESS_KEY}}
+AWS_DEFAULT_REGION=${{nudget-backups.REGION}}
+BACKUP_PREFIX=nudget/postgres
+BACKUP_RETENTION_DAYS=30
+```
+
+ถ้าต้องการแจ้ง LINE เมื่อ backup ล้มเหลว ให้เพิ่ม `LINE_CHANNEL_ACCESS_TOKEN` และ `BACKUP_ALERT_LINE_USER_ID` เฉพาะ service นี้ ข้อความแจ้งเตือนไม่มี connection string หรือข้อมูลจากฐานข้อมูล
+
+เมื่อทำงานสำเร็จ log จะมีบรรทัด `backup_completed` พร้อม object key, ขนาด และ SHA-256 โดยไม่แสดง `DATABASE_URL` หรือ credential ไฟล์ dump เป็น PostgreSQL custom format แบบบีบอัด และมี manifest `.json` สำหรับตรวจ checksum
+
+Railway cron ใช้เวลา UTC และอาจเริ่มช้ากว่านาทีที่กำหนดเล็กน้อย ถ้ารอบก่อนยังทำงานอยู่ ระบบจะข้ามรอบถัดไป สคริปต์นี้จบ process ทันทีหลังอัปโหลดและลบไฟล์ที่หมดอายุ
+
+#### Restore drill
+
+ห้าม restore ลง production โดยตรง ให้สร้าง PostgreSQL ชั่วคราวใน environment สำหรับทดสอบ แล้วตั้งตัวแปรของ service backup ชั่วคราวดังนี้
+
+```text
+RESTORE_DATABASE_URL=${{Postgres-scratch.DATABASE_URL}}
+ALLOW_RESTORE_CHECK=1
+```
+
+จากนั้น override start command เป็น `/app/scripts/verify-postgres-backup.sh` แล้ว trigger หนึ่งครั้ง สคริปต์จะดาวน์โหลด dump ล่าสุด ตรวจ checksum, restore ลง scratch database และตรวจตารางหลักกับข้อมูลหมวดหมู่ เมื่อเห็น `restore_check_completed` ให้บันทึกวันที่และผลลัพธ์ใน Issue/maintenance log แล้วลบ scratch database และเอา override ออก
+
+หากต้องกู้ข้อมูลจริง ให้ restore ลง PostgreSQL service ใหม่ก่อน ตรวจข้อมูล แล้วเปลี่ยน `DATABASE_URL` ของ `web` และ `reminders` ไปยัง service ใหม่นั้น การ restore script จะปฏิเสธ target ที่ชี้ไปฐานเดียวกับ `DATABASE_URL` เพื่อลดโอกาสเขียนทับ production
+
+สำหรับเครื่อง local ใช้ directory แทน bucket ได้:
+
+```bash
+BACKUP_LOCAL_DIR=./backups bun run db:backup
+RESTORE_DATABASE_URL=postgres://... ALLOW_RESTORE_CHECK=1 BACKUP_LOCAL_DIR=./backups bun run db:restore-check
+```
+
+CI ทำ restore drill กับ PostgreSQL ชั่วคราวทุกครั้งที่ push หรือเปิด PR จึงตรวจได้ว่าสคริปต์และ schema ปัจจุบันยังกู้คืนได้ ส่วน production ควรทำ drill หลังตั้งค่าครั้งแรกและอย่างน้อยทุก 3 เดือน
 
 ## หลัง deploy
 

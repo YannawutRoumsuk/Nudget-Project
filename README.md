@@ -236,4 +236,6 @@ bun run db:push        # sync schema เข้า DB (dev)
 bun run db:generate    # สร้างไฟล์ migration
 bun run db:seed        # seed หมวดหมู่
 bun run db:down        # หยุด Postgres
+bun run db:backup      # สร้าง logical dump ไป S3-compatible bucket หรือ BACKUP_LOCAL_DIR
+bun run db:restore-check # กู้ dump ล่าสุดลงฐานข้อมูลทดสอบและตรวจ schema
 ```
