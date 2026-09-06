@@ -51,6 +51,13 @@ const COMMANDS: Record<string, BotCommand> = {
 	whoami: 'whoami',
 	id: 'whoami',
 	ไอดี: 'whoami',
+	web: 'web',
+	link: 'web',
+	dashboard: 'web',
+	'เว็บ': 'web',
+	'ลิงก์': 'web',
+	'ลิ้ง': 'web',
+	'แดชบอร์ด': 'web',
 	members: 'members',
 	'สมาชิก': 'members',
 	'ใครใช้บ้าง': 'members'

@@ -11,7 +11,7 @@ export interface ParsedTransaction {
 	paymentMethod?: PaymentMethod;
 }
 
-export type BotCommand = 'help' | 'today' | 'month' | 'summary' | 'bills' | 'budget' | 'undo' | 'whoami' | 'members';
+export type BotCommand = 'help' | 'today' | 'month' | 'summary' | 'bills' | 'budget' | 'undo' | 'whoami' | 'members' | 'web';
 
 export type ParseOutcome =
 	| { type: 'command'; command: BotCommand }

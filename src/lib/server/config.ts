@@ -64,6 +64,8 @@ export const config = {
 		daysBefore: boundedInteger(env.REMINDER_DAYS_BEFORE, 3, 0, 31)
 	},
 	databaseUrl: env.DATABASE_URL ?? '',
+	/** The dashboard's public origin, handed out in chat when someone asks for it. */
+	publicBaseUrl: (env.PUBLIC_BASE_URL ?? '').trim().replace(/\/$/, ''),
 	line: {
 		channelSecret: (env.LINE_CHANNEL_SECRET ?? '').trim(),
 		accessToken: (env.LINE_CHANNEL_ACCESS_TOKEN ?? '').trim(),
