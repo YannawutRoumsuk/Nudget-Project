@@ -1,6 +1,9 @@
 import type { PendingSlip } from '$lib/server/db/schema';
 import { claimPendingSlip, updatePendingSlip } from '$lib/server/db/slips';
-import { getMessageContent, pushText } from '$lib/server/line/client';
+import { FALLBACK_CATEGORY } from '$lib/categories';
+import { matchCategory } from '$lib/server/parser/rules';
+import { getMessageContent, pushQuickReplies, pushText } from '$lib/server/line/client';
+import { slipReviewActions, slipReviewText } from '$lib/server/line/messages';
 import { readSlip } from './slip';
 
 export async function processPendingSlip(id: number): Promise<boolean> {
@@ -13,18 +16,25 @@ export async function processPendingSlip(id: number): Promise<boolean> {
 export async function processClaimedSlip(pending: PendingSlip): Promise<void> {
 	try {
 		const result = await readSlip(await getMessageContent(pending.messageId));
+		const categoryId = matchCategory(`${result.recipient}\n${result.text}`, 'expense')?.id ?? FALLBACK_CATEGORY.expense;
 		const updated = await updatePendingSlip(pending.id, {
 			status: 'ready',
 			amount: result.amount?.toFixed(2) ?? null,
 			occurredAt: result.occurredAt,
+			categoryId,
+			paymentMethod: 'bank',
+			note: result.recipient.trim() || 'สลิปโอนเงิน',
 			recipient: result.recipient,
 			reference: result.reference,
-			ocrText: result.text
+			ocrText: result.text,
+			expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
 		});
 		if (!updated || updated.messageId !== pending.messageId) return;
-		const amount = result.amount ? `${result.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท` : 'ยังอ่านยอดไม่ชัด';
-		const recipient = result.recipient ? `\nผู้รับ: ${result.recipient}` : '';
-		await pushText(pending.lineUserId, `อ่านสลิปแล้ว: ${amount}${recipient}\n\nพิมพ์ว่าเป็นค่าอะไร เช่น “ค่าอาหาร” หรือแก้ยอดได้ เช่น “ค่าของ 350”`);
+		await pushQuickReplies(
+			pending.lineUserId,
+			slipReviewText(updated),
+			slipReviewActions(updated.id)
+		);
 	} catch (error) {
 		console.error('[ocr] slip failed:', error);
 		const updated = await updatePendingSlip(pending.id, { status: 'failed' });

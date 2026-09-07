@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
 	boolean,
 	date,
@@ -138,9 +139,18 @@ export const pendingSlips = pgTable(
 		status: varchar('status', { length: 12 }).notNull().$type<'queued' | 'processing' | 'ready' | 'failed'>(),
 		amount: numeric('amount', { precision: 12, scale: 2 }),
 		occurredAt: timestamp('occurred_at', { withTimezone: true }),
+		categoryId: varchar('category_id', { length: 32 })
+			.notNull()
+			.default('other')
+			.references(() => categories.id),
+		paymentMethod: varchar('payment_method', { length: 16 }).notNull().$type<PaymentMethod>().default('bank'),
+		note: text('note').notNull().default(''),
 		recipient: text('recipient').notNull().default(''),
 		reference: text('reference').notNull().default(''),
 		ocrText: text('ocr_text').notNull().default(''),
+		expiresAt: timestamp('expires_at', { withTimezone: true })
+			.notNull()
+			.default(sql`now() + interval '24 hours'`),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},

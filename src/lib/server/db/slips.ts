@@ -1,4 +1,4 @@
-import { and, asc, eq, lt } from 'drizzle-orm';
+import { and, asc, eq, gt, lt } from 'drizzle-orm';
 import { db } from './index';
 import { pendingSlips } from './schema';
 import type { PendingSlip } from './schema';
@@ -47,7 +47,7 @@ export async function replacePendingSlip(
 
 export async function updatePendingSlip(
 	id: number,
-	values: Partial<Pick<typeof pendingSlips.$inferInsert, 'status' | 'amount' | 'occurredAt' | 'recipient' | 'reference' | 'ocrText'>>
+	values: Partial<Pick<typeof pendingSlips.$inferInsert, 'status' | 'amount' | 'occurredAt' | 'categoryId' | 'paymentMethod' | 'note' | 'recipient' | 'reference' | 'ocrText' | 'expiresAt'>>
 ): Promise<PendingSlip | null> {
 	const [row] = await db
 		.update(pendingSlips)
@@ -55,6 +55,58 @@ export async function updatePendingSlip(
 		.where(eq(pendingSlips.id, id))
 		.returning();
 	return row ?? null;
+}
+
+/** User-facing edits must match both the pending id and its owner. */
+export async function updateOwnedPendingSlip(
+	id: number,
+	userId: number,
+	values: Partial<Pick<typeof pendingSlips.$inferInsert, 'amount' | 'occurredAt' | 'categoryId' | 'note'>>,
+	executor: DbExecutor = db
+): Promise<PendingSlip | null> {
+	const [row] = await executor
+		.update(pendingSlips)
+		.set({ ...values, updatedAt: new Date() })
+		.where(and(
+			eq(pendingSlips.id, id),
+			eq(pendingSlips.userId, userId),
+			eq(pendingSlips.status, 'ready'),
+			gt(pendingSlips.expiresAt, new Date())
+		))
+		.returning();
+	return row ?? null;
+}
+
+/**
+ * Removes the ready slip before its transaction is inserted in the same DB
+ * transaction. A second tap cannot consume the same slip again.
+ */
+export async function consumePendingSlip(
+	id: number,
+	userId: number,
+	executor: DbExecutor = db
+): Promise<PendingSlip | null> {
+	const [row] = await executor
+		.delete(pendingSlips)
+		.where(and(
+			eq(pendingSlips.id, id),
+			eq(pendingSlips.userId, userId),
+			eq(pendingSlips.status, 'ready'),
+			gt(pendingSlips.expiresAt, new Date())
+		))
+		.returning();
+	return row ?? null;
+}
+
+export async function deleteOwnedPendingSlip(
+	id: number,
+	userId: number,
+	executor: DbExecutor = db
+): Promise<boolean> {
+	const rows = await executor.delete(pendingSlips)
+		.where(and(eq(pendingSlips.id, id), eq(pendingSlips.userId, userId)))
+		.returning({ id: pendingSlips.id });
+	return rows.length > 0;
 }
 
 export async function deletePendingSlip(userId: number, executor: DbExecutor = db): Promise<boolean> {
