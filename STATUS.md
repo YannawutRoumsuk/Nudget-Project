@@ -26,6 +26,7 @@
 - เตือนบิลทาง LINE ตาม `REMINDER_HOUR` และ `REMINDER_DAYS_BEFORE` เมื่อเซิร์ฟเวอร์เปิดอยู่ พร้อมกันส่งซ้ำในฐานข้อมูล
 - ส่งออกข้อมูลของบัญชีที่เข้าสู่ระบบตามเดือนหรือช่วงวันที่: ธุรกรรมและบิลเป็น CSV ภาษาไทย และข้อมูลโครงสร้างรวมแผนกับการชำระบิลเป็น JSON
 - เลือกเดือนย้อนหลังร่วมกันในภาพรวม รายการ และแผนเดือน พร้อมปุ่มก่อนหน้า/ถัดไป ชื่อเดือนไทย และ URL ที่ bookmark ได้
+- คัดลอกบิลเดิมเป็นบิลใหม่พร้อมแก้รายละเอียดก่อนยืนยัน โดยไม่คัดลอกสถานะหรือประวัติชำระ
 - สำรอง PostgreSQL ทุกวันเวลา 10:00 น. ไทยไป private Railway Bucket เก็บย้อนหลัง 30 วัน พร้อม checksum และ restore drill ใน CI
 
 ## Production
@@ -40,7 +41,7 @@
 
 ## ผลตรวจล่าสุด
 
-- Automated tests: 160 รายการ (154 ผ่านบนเครื่อง และอีก 6 integration test รันกับ PostgreSQL จริงใน CI)
+- Automated tests: 161 รายการ (155 ผ่านบนเครื่อง และอีก 6 integration test รันกับ PostgreSQL จริงใน CI)
 - Svelte/TypeScript: 0 errors, 0 warnings
 - Production build: ผ่าน
 - Database doctor: env, schema และ seeded categories ผ่าน

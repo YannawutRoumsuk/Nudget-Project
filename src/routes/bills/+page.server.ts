@@ -1,8 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { EXPENSE_CATEGORIES } from '$lib/categories';
-import { validateBillSchedule } from '$lib/bills';
+import { billCopyDefaults, validateBillSchedule } from '$lib/bills';
 import { requireUserId } from '$lib/server/auth';
-import { createBill, listBills, markBillPaid, unmarkBillPaid, updateBill } from '$lib/server/db/bills';
+import { createBill, getBill, listBills, markBillPaid, unmarkBillPaid, updateBill } from '$lib/server/db/bills';
 import { fromBangkok } from '$lib/utils/date';
 import type { BillRecurrence, PaymentMethod } from '$lib/server/db/schema';
 import type { Actions, PageServerLoad } from './$types';
@@ -27,16 +27,27 @@ function parseForm(form: FormData) {
 		dueDay: recurrence === 'monthly' ? dueDay : null, dueDate: recurrence === 'once' ? dueDate : null, active } };
 }
 
-export const load: PageServerLoad = async ({ locals }) => ({
-	bills: await listBills(requireUserId(locals), new Date(), true)
-});
+export const load: PageServerLoad = async ({ url, locals }) => {
+	const userId = requireUserId(locals);
+	const copyRaw = url.searchParams.get('copy');
+	const copyId = Number(copyRaw);
+	const [ownedBills, source] = await Promise.all([
+		listBills(userId, new Date(), true),
+		copyRaw !== null && Number.isInteger(copyId) && copyId > 0 ? getBill(copyId, userId) : null
+	]);
+	return {
+		bills: ownedBills,
+		copy: source ? billCopyDefaults(source) : null,
+		copyMissing: copyRaw !== null && !source
+	};
+};
 
 export const actions: Actions = {
 	create: async ({ request, locals }) => {
 		const userId = requireUserId(locals);
 		const parsed = parseForm(await request.formData());
 		if (!parsed.valid) return fail(400, { message: 'กรอกชื่อ ยอด และวันจ่ายให้ครบ' });
-		await createBill({ ...parsed.values, userId });
+		await createBill({ ...parsed.values, active: true, userId });
 		redirect(303, '/bills');
 	},
 	update: async ({ request, locals }) => {

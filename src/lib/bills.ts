@@ -25,3 +25,21 @@ export function validateBillSchedule(recurrence: BillRecurrence, dueDay: number 
 		? Number.isInteger(dueDay) && (dueDay ?? 0) >= 1 && (dueDay ?? 0) <= 31
 		: dueDate instanceof Date && Number.isFinite(dueDate.getTime());
 }
+
+export type BillCopyDefaults = Pick<
+	Bill,
+	'name' | 'amount' | 'categoryId' | 'paymentMethod' | 'recurrence' | 'dueDay' | 'dueDate'
+>;
+
+/** Only fields a user may edit on a fresh bill. Identity, status and payment history stay behind. */
+export function billCopyDefaults(bill: BillCopyDefaults): BillCopyDefaults {
+	return {
+		name: bill.name,
+		amount: bill.amount,
+		categoryId: bill.categoryId,
+		paymentMethod: bill.paymentMethod,
+		recurrence: bill.recurrence,
+		dueDay: bill.dueDay,
+		dueDate: bill.dueDate
+	};
+}
