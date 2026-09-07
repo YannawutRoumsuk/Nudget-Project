@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { isMonthKey } from '$lib/month';
 	import '$lib/styles/global.css';
 
 	let { children, data } = $props();
@@ -12,6 +13,8 @@
 		{ href: '/export', label: 'ส่งออก' },
 		...(data?.isOwner ? [{ href: '/members', label: 'สมาชิก' }] : [])
 	]);
+	const selectedMonth = $derived(isMonthKey(page.url.searchParams.get('month')) ? page.url.searchParams.get('month') : null);
+	const navHref = (href: string) => selectedMonth && href !== '/members' ? `${href}?month=${selectedMonth}` : href;
 
 	const showChrome = $derived(page.url.pathname !== '/login');
 </script>
@@ -19,7 +22,7 @@
 <div class="shell">
 	{#if showChrome}
 		<header class="masthead">
-			<a href="/" class="wordmark">
+			<a href={navHref('/')} class="wordmark">
 				<span class="mark" aria-hidden="true">฿</span>
 				<span class="name">Nudget</span>
 			</a>
@@ -27,7 +30,7 @@
 			<nav aria-label="หน้าหลัก">
 				{#each NAV as item (item.href)}
 					<a
-						href={item.href}
+						href={navHref(item.href)}
 						class:active={page.url.pathname === item.href || (item.href !== '/' && page.url.pathname.startsWith(`${item.href}/`))}
 						aria-current={page.url.pathname === item.href || (item.href !== '/' && page.url.pathname.startsWith(`${item.href}/`)) ? 'page' : undefined}
 					>

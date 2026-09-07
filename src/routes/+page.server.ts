@@ -2,6 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { FALLBACK_CATEGORY } from '$lib/categories';
 import { buildBreakdown, fillDailySeries, uncategorisedCount } from '$lib/analytics';
 import { DEFAULT_RANGE, resolveRange } from '$lib/ranges';
+import { resolveMonthSelection } from '$lib/month';
 import {
 	deleteTransaction,
 	getByCategory,
@@ -14,7 +15,7 @@ import { requireUserId } from '$lib/server/auth';
 import { confirmSaved } from '$lib/server/line/messages';
 import { parseMessage } from '$lib/server/parser';
 import { toTxView } from '$lib/server/views';
-import { bangkokDayKey } from '$lib/utils/date';
+import { addDays, bangkokDayKey } from '$lib/utils/date';
 import type { Actions, PageServerLoad } from './$types';
 
 const RECENT_LIMIT = 12;
@@ -22,7 +23,10 @@ const RECENT_LIMIT = 12;
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = requireUserId(locals);
 	const now = new Date();
-	const range = resolveRange(url.searchParams.get('range') ?? DEFAULT_RANGE, now);
+	const month = resolveMonthSelection(url.searchParams.get('month'), now);
+	const rangeId = url.searchParams.get('range') ?? DEFAULT_RANGE;
+	const relativeRange = resolveRange(rangeId, now);
+	const range = relativeRange.id === 'month' ? month : relativeRange;
 
 	const [totals, expenseSlices, incomeSlices, series, recent] = await Promise.all([
 		getTotals(userId, range),
@@ -34,10 +38,11 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	return {
 		range: { id: range.id, label: range.label, elapsedDays: range.elapsedDays },
+		month,
 		totals,
 		expenseBreakdown: buildBreakdown(expenseSlices),
 		incomeBreakdown: buildBreakdown(incomeSlices),
-		days: fillDailySeries(series, range.from, range.to, bangkokDayKey(now)),
+		days: fillDailySeries(series, range.from, addDays(range.to, -1), bangkokDayKey(now)),
 		recent: recent.map(toTxView),
 		uncategorised: uncategorisedCount(expenseSlices)
 	};

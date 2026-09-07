@@ -2,6 +2,7 @@
 	import BreakdownList from '$lib/components/BreakdownList.svelte';
 	import CategoryDonut from '$lib/components/CategoryDonut.svelte';
 	import DailyChart from '$lib/components/DailyChart.svelte';
+	import MonthNavigator from '$lib/components/MonthNavigator.svelte';
 	import QuickAdd from '$lib/components/QuickAdd.svelte';
 	import RangeTabs from '$lib/components/RangeTabs.svelte';
 	import StatFigure from '$lib/components/StatFigure.svelte';
@@ -28,6 +29,13 @@
 	const quickAddResult = $derived(
 		form?.action === 'add' ? { ok: form.ok, message: form.message } : null
 	);
+
+	function transactionsHref(categoryId?: string): string {
+		const params = new URLSearchParams({ range: data.range.id });
+		if (data.range.id === 'month') params.set('month', data.month.key);
+		if (categoryId) params.set('category', categoryId);
+		return `/transactions?${params}`;
+	}
 </script>
 
 <svelte:head>
@@ -40,6 +48,7 @@
 		<p class="eyebrow">{data.range.label}</p>
 		<RangeTabs options={RANGE_OPTIONS} active={data.range.id} />
 	</div>
+	<MonthNavigator month={data.month} />
 
 	<div class="hero-figures">
 		<StatFigure label="จ่ายไปแล้ว" value={data.totals.expense} tone="out" emphasis />
@@ -63,7 +72,7 @@
 	{#if data.uncategorised > 0}
 		<p class="nudge">
 			⚠️ มี {data.uncategorised} รายการที่ยังอยู่ในหมวด “อื่นๆ” —
-			<a href="/transactions?category=other">ดูและแก้หมวดหมู่</a>
+			<a href={transactionsHref('other')}>ดูและแก้หมวดหมู่</a>
 		</p>
 	{/if}
 </section>
@@ -94,7 +103,7 @@
 			<div class="list-wrap">
 				<BreakdownList
 					rows={data.expenseBreakdown}
-					hrefFor={(row) => `/transactions?range=${data.range.id}&category=${row.categoryId}`}
+					hrefFor={(row) => transactionsHref(row.categoryId)}
 				/>
 			</div>
 		{/if}
@@ -104,7 +113,7 @@
 		<section class="card panel">
 			<header class="panel-head">
 				<h2>รายการล่าสุด</h2>
-				<a class="more" href="/transactions?range={data.range.id}">ดูทั้งหมด →</a>
+				<a class="more" href={transactionsHref()}>ดูทั้งหมด →</a>
 			</header>
 			<TransactionList items={data.recent} deletable emptyText="ยังไม่มีรายการ — ทักบอทใน LINE ได้เลย" />
 		</section>
