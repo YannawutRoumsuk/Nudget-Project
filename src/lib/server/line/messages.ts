@@ -4,6 +4,52 @@ import type { Transaction } from '$lib/server/db/schema';
 import { formatThaiShortDate, formatThaiTime } from '$lib/utils/date';
 import { formatNumber, toNumber } from '$lib/utils/money';
 
+export interface SlipReviewData {
+	id: number;
+	amount?: number | string | null;
+	occurredAt?: Date | null;
+	recipient?: string;
+	categoryId: string;
+	paymentMethod: string;
+}
+
+const paymentMethodLabels: Record<string, string> = {
+	bank: 'โอน/บัญชี',
+	cash: 'เงินสด',
+	credit_card: 'บัตรเครดิต',
+	wallet: 'วอลเล็ต'
+};
+
+export function slipReviewText(slip: SlipReviewData): string {
+	const amount = slip.amount === null || slip.amount === undefined
+		? 'ยังอ่านไม่ชัด — กด “แก้ยอด”'
+		: `${formatNumber(toNumber(slip.amount))} บาท`;
+	const occurredAt = slip.occurredAt
+		? `${formatThaiShortDate(slip.occurredAt)} ${formatThaiTime(slip.occurredAt)} น.`
+		: 'วันนี้';
+	return [
+		'🧾 ตรวจสอบรายการจากสลิป',
+		'',
+		`ยอดเงิน: ${amount}`,
+		`วันที่: ${occurredAt}`,
+		`ผู้รับ: ${slip.recipient?.trim() || 'ไม่ทราบชื่อ'}`,
+		`หมวดหมู่: ${categoryLine(slip.categoryId)}`,
+		`จ่ายด้วย: ${paymentMethodLabels[slip.paymentMethod] ?? slip.paymentMethod}`,
+		'',
+		'เลือกการทำรายการด้านล่าง'
+	].join('\n');
+}
+
+export function slipReviewActions(id: number) {
+	return [
+		{ label: 'บันทึก', data: `slip:save:${id}` },
+		{ label: 'แก้ยอด', data: `slip:edit-amount:${id}` },
+		{ label: 'เปลี่ยนหมวดหมู่', data: `slip:change-category:${id}` },
+		{ label: 'เปลี่ยนวันที่', data: `slip:change-date:${id}` },
+		{ label: 'ยกเลิก', data: `slip:cancel:${id}` }
+	];
+}
+
 function categoryLine(categoryId: string): string {
 	const category = getCategory(categoryId);
 	return category ? `${category.icon} ${category.nameTh}` : `📦 ${categoryId}`;

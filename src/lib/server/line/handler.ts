@@ -1,4 +1,4 @@
-import { FALLBACK_CATEGORY } from '$lib/categories';
+import { EXPENSE_CATEGORIES, FALLBACK_CATEGORY } from '$lib/categories';
 import { analyzeBudget } from '$lib/budget';
 import { billDueDate } from '$lib/bills';
 import { config } from '$lib/server/config';
@@ -15,8 +15,15 @@ import {
 	insertTransaction
 } from '$lib/server/db/queries';
 import type { DbExecutor } from '$lib/server/db/queries';
-import { deletePendingSlip, getPendingSlip, replacePendingSlip } from '$lib/server/db/slips';
-import type { User } from '$lib/server/db/schema';
+import {
+	consumePendingSlip,
+	deleteOwnedPendingSlip,
+	deletePendingSlip,
+	getPendingSlip,
+	replacePendingSlip,
+	updateOwnedPendingSlip
+} from '$lib/server/db/slips';
+import type { PendingSlip, User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseMessage } from '$lib/server/parser';
 import type { BotCommand, ParseOutcome } from '$lib/server/parser';
@@ -32,7 +39,7 @@ import {
 	daysInBangkokMonth
 } from '$lib/utils/date';
 import { formatNumber, toNumber } from '$lib/utils/money';
-import { getDisplayName, pushText, replyText } from './client';
+import { getDisplayName, pushText, replyQuickReplies, replyText } from './client';
 import {
 	confirmSaved,
 	helpText,
@@ -42,6 +49,8 @@ import {
 	newMemberText,
 	revokedText,
 	setupText,
+	slipReviewActions,
+	slipReviewText,
 	summaryText,
 	undoText,
 	unknownText,
@@ -84,16 +93,20 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		return;
 	}
 
-	if (event.type !== 'message' || !event.message) return;
-	const text = event.message.text ?? '';
+	const text = event.type === 'message' ? event.message?.text ?? '' : '';
 	// Bootstrap identity without allowing access to the personal ledger.
-	if (matchCommand(text) === 'whoami') {
+	if (event.type === 'message' && matchCommand(text) === 'whoami') {
 		await replyText(event.replyToken, userId ? `LINE userId ของคุณคือ\n${userId}` : 'ไม่พบ userId ในข้อความนี้');
 		return;
 	}
 
 	const user = await gateOnMembership(event.replyToken, userId);
 	if (!user) return;
+	if (event.type === 'postback' && event.postback) {
+		await handleSlipPostback(event, user);
+		return;
+	}
+	if (event.type !== 'message' || !event.message) return;
 	// Answered outside the ledger transaction: it reads other people's rows, so
 	// it has no business inside a per-user write, and it must not be deduped.
 	if (matchCommand(text) === 'members') {
@@ -112,19 +125,115 @@ async function handleEvent(event: LineEvent): Promise<void> {
 	// Use the original send time so retries across midnight keep the intended day.
 	const sentAt = event.timestamp === undefined ? new Date() : new Date(event.timestamp);
 	const pending = await getPendingSlip(user.id);
-	let outcome = await parseMessage(text, sentAt);
-	if (pending?.status === 'ready' && outcome.type === 'unknown' && pending.amount) {
-		outcome = await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt);
-	}
+	// A ready slip already supplies the amount, so parse the user's description
+	// once with that amount. This avoids spending an LLM fallback call on text
+	// such as “ค่าอาหาร” that intentionally contains no number.
+	const command = matchCommand(text);
+	const outcome = pending?.status === 'ready' && pending.amount && !command
+		? await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt)
+		: await parseMessage(text, sentAt);
 	const response = await processEventOnce(eventId, (executor) =>
 		respondTo(outcome, text, user, executor, pending)
 	);
 	if (response === null) return;
 	try {
-		await replyText(event.replyToken, response);
+		await replyResponse(event.replyToken, response);
 	} catch (error) {
 		// The ledger is committed; a failed confirmation must not repeat mutations.
 		console.error('[line] confirmation failed:', error);
+	}
+}
+
+type LineResponse =
+	| string
+	| { kind: 'slip'; slip: PendingSlip }
+	| { kind: 'categories'; pendingId: number };
+
+async function replyResponse(replyToken: string, response: LineResponse): Promise<void> {
+	if (typeof response === 'string') {
+		await replyText(replyToken, response);
+		return;
+	}
+	if (response.kind === 'categories') {
+		await replyQuickReplies(replyToken, 'เลือกหมวดหมู่ของรายการนี้', EXPENSE_CATEGORIES.map((category) => ({
+			label: `${category.icon} ${category.nameTh}`,
+			data: `slip:category:${response.pendingId}:${category.id}`
+		})));
+		return;
+	}
+	await replyQuickReplies(replyToken, slipReviewText(response.slip), slipReviewActions(response.slip.id));
+}
+
+function pendingExpired(pending: PendingSlip): boolean {
+	return Boolean(pending.expiresAt && pending.expiresAt.getTime() <= Date.now());
+}
+
+async function handleSlipPostback(event: LineEvent, user: User): Promise<void> {
+	if (!event.replyToken) return;
+	const data = event.postback?.data ?? '';
+	const categoryMatch = /^slip:category:(\d+):([a-z_]{1,32})$/.exec(data);
+	const actionMatch = /^slip:(save|edit-amount|change-category|change-date|cancel):(\d+)$/.exec(data);
+	if (!categoryMatch && !actionMatch) return;
+	const pendingId = Number(categoryMatch?.[1] ?? actionMatch?.[2]);
+	if (!Number.isSafeInteger(pendingId) || pendingId <= 0) return;
+	const eventId = event.webhookEventId;
+	if (!eventId) throw new Error('LINE postback has no event identifier');
+
+	const response = await processEventOnce(eventId, async (executor): Promise<LineResponse> => {
+		const pending = await getPendingSlip(user.id, executor);
+		if (!pending || pending.id !== pendingId) return 'รายการนี้ถูกบันทึก ยกเลิก หรือหมดเวลาแล้ว';
+		if (pendingExpired(pending)) {
+			await deleteOwnedPendingSlip(pending.id, user.id, executor);
+			return 'สลิปนี้หมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+		}
+
+		if (categoryMatch) {
+			const category = EXPENSE_CATEGORIES.find((item) => item.id === categoryMatch[2]);
+			if (!category) return 'ไม่พบหมวดหมู่นี้';
+			const updated = await updateOwnedPendingSlip(pending.id, user.id, { categoryId: category.id }, executor);
+			return updated ? { kind: 'slip', slip: updated } : 'รายการนี้หมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+		}
+
+		switch (actionMatch![1]) {
+			case 'edit-amount':
+				return 'พิมพ์ยอดใหม่ เช่น “ยอด 350”';
+			case 'change-date':
+				return 'พิมพ์วันที่ใหม่ เช่น “วันที่ 7/9/2026”';
+			case 'change-category':
+				return { kind: 'categories', pendingId: pending.id };
+			case 'cancel':
+				await deleteOwnedPendingSlip(pending.id, user.id, executor);
+				return 'ยกเลิกสลิปแล้ว';
+			case 'save': {
+				if (!pending.amount || toNumber(pending.amount) <= 0) return 'ยังไม่มียอดเงิน กด “แก้ยอด” ก่อนบันทึก';
+				const claimed = await consumePendingSlip(pending.id, user.id, executor);
+				if (!claimed) return 'รายการนี้ถูกบันทึก ยกเลิก หรือหมดเวลาแล้ว';
+				const saved = await insertTransaction({
+					userId: user.id,
+					kind: 'expense',
+					amount: claimed.amount!,
+					categoryId: claimed.categoryId,
+					note: claimed.note,
+					occurredAt: claimed.occurredAt ?? new Date(),
+					paymentMethod: claimed.paymentMethod,
+					source: 'line',
+					parsedBy: 'ocr',
+					rawText: `[OCR]\n${claimed.ocrText}`,
+					lineUserId: user.lineUserId
+				}, executor);
+				return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY.expense);
+			}
+		}
+		return 'ไม่รู้จักคำสั่งนี้';
+	});
+	if (response !== null) {
+		try {
+			await replyResponse(event.replyToken, response);
+		} catch (error) {
+			// Mutations are committed and deduped; failing the webhook here would
+			// only make LINE retry an action whose side effect already succeeded.
+			console.error('[line] postback response failed:', error);
+		}
 	}
 }
 
@@ -202,13 +311,35 @@ async function respondTo(
 	user: User,
 	executor: DbExecutor,
 	pending: Awaited<ReturnType<typeof getPendingSlip>> = null
-): Promise<string> {
+): Promise<LineResponse> {
+	if (pending && pendingExpired(pending)) {
+		await deleteOwnedPendingSlip(pending.id, user.id, executor);
+		return 'สลิปก่อนหน้าหมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+	}
 	if (pending && /^(?:ยกเลิก|cancel)$/i.test(text.trim())) {
 		await deletePendingSlip(user.id, executor);
 		return 'ยกเลิกสลิปแล้ว';
 	}
 	if (pending?.status === 'queued' || pending?.status === 'processing') return 'กำลังอ่านสลิปอยู่ รอข้อความผลลัพธ์สักครู่นะ';
 	if (outcome.type === 'command') return runCommand(outcome.command, user, executor);
+	if (pending?.status === 'ready') {
+		if (outcome.type === 'unknown') return 'บอกว่าเป็นค่าอะไร หรือกดปุ่มด้านล่างเพื่อแก้ไขและบันทึก';
+		const trimmed = text.trim();
+		let values: Parameters<typeof updateOwnedPendingSlip>[2];
+		if (/^(?:ยอด|จำนวนเงิน?)\s*/i.test(trimmed)) {
+			values = { amount: outcome.tx.amount.toFixed(2) };
+		} else if (/^วันที่\s*/i.test(trimmed)) {
+			values = { occurredAt: outcome.tx.occurredAt };
+		} else {
+			values = {
+				amount: outcome.tx.amount.toFixed(2),
+				categoryId: outcome.tx.categoryId,
+				note: outcome.tx.note || pending.note
+			};
+		}
+		const updated = await updateOwnedPendingSlip(pending.id, user.id, values, executor);
+		return updated ? { kind: 'slip', slip: updated } : 'สลิปนี้หมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+	}
 	if (outcome.type === 'unknown') return unknownText();
 
 	const { tx } = outcome;
@@ -218,15 +349,13 @@ async function respondTo(
 		amount: tx.amount.toFixed(2),
 		categoryId: tx.categoryId,
 		note: tx.note,
-		occurredAt: pending?.occurredAt ?? tx.occurredAt,
-		paymentMethod: pending ? 'bank' : tx.paymentMethod,
+		occurredAt: tx.occurredAt,
+		paymentMethod: tx.paymentMethod,
 		source: 'line',
-		parsedBy: pending ? 'ocr' : tx.parsedBy,
-		rawText: pending ? `${text}\n[OCR]\n${pending.ocrText}` : text,
+		parsedBy: tx.parsedBy,
+		rawText: text,
 		lineUserId: user.lineUserId
 	}, executor);
-	if (pending) await deletePendingSlip(user.id, executor);
-
 	return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind]);
 }
 

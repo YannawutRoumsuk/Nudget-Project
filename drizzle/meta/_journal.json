@@ -36,6 +36,13 @@
       "when": 1788689560113,
       "tag": "0004_member_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788787931782,
+      "tag": "0005_hesitant_vivisector",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,8 @@ const mocks = vi.hoisted(() => ({
 	processEventOnce: vi.fn(), insertTransaction: vi.fn(), deleteLatestTransaction: vi.fn(),
 	getTotals: vi.fn(), getByCategory: vi.fn(), getPaymentMethodTotal: vi.fn(), parseMessage: vi.fn(), replyText: vi.fn(),
 	getPendingSlip: vi.fn(), replacePendingSlip: vi.fn(), updatePendingSlip: vi.fn(), deletePendingSlip: vi.fn(),
-	getMessageContent: vi.fn(), pushText: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
+	updateOwnedPendingSlip: vi.fn(), consumePendingSlip: vi.fn(), deleteOwnedPendingSlip: vi.fn(),
+	getMessageContent: vi.fn(), pushText: vi.fn(), replyQuickReplies: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
 	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, publicBaseUrl: 'https://nudget.example' }
@@ -20,7 +21,10 @@ vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
 	replacePendingSlip: mocks.replacePendingSlip,
 	updatePendingSlip: mocks.updatePendingSlip,
-	deletePendingSlip: mocks.deletePendingSlip
+	deletePendingSlip: mocks.deletePendingSlip,
+	updateOwnedPendingSlip: mocks.updateOwnedPendingSlip,
+	consumePendingSlip: mocks.consumePendingSlip,
+	deleteOwnedPendingSlip: mocks.deleteOwnedPendingSlip
 }));
 vi.mock('$lib/server/db/bills', () => ({ listBills: mocks.listBills, getUnpaidBillTotal: mocks.getUnpaidBillTotal }));
 vi.mock('$lib/server/db/plans', () => ({ getMonthlyPlan: mocks.getMonthlyPlan }));
@@ -29,6 +33,7 @@ vi.mock('$lib/server/ocr/processor', () => ({ processPendingSlip: mocks.processP
 vi.mock('$lib/server/parser', () => ({ parseMessage: mocks.parseMessage, matchCommand: (text: string) => text === 'ไอดี' ? 'whoami' : text === 'สมาชิก' ? 'members' : null }));
 vi.mock('../src/lib/server/line/client', () => ({
 	replyText: mocks.replyText,
+	replyQuickReplies: mocks.replyQuickReplies,
 	pushText: mocks.pushText,
 	getDisplayName: mocks.getDisplayName,
 	getMessageContent: mocks.getMessageContent
@@ -37,6 +42,13 @@ import { handleEvents, type LineEvent } from '../src/lib/server/line/handler';
 
 const executor = {};
 const owner = { id: 42, lineUserId: 'owner', displayName: '' };
+const pendingReady = {
+	id: 7, userId: owner.id, lineUserId: 'owner', messageId: 'image-1', status: 'ready' as const,
+	amount: '100.00', occurredAt: new Date('2026-09-01T05:00:00Z'), categoryId: 'other',
+	paymentMethod: 'bank' as const, note: 'ร้านตัวอย่าง', recipient: 'ร้านตัวอย่าง', reference: '',
+	ocrText: 'จำนวนเงิน 100.00 บาท', expiresAt: new Date('2099-01-01T00:00:00Z'),
+	createdAt: new Date(), updatedAt: new Date()
+};
 const event: LineEvent = {
 	type: 'message', replyToken: 'reply', webhookEventId: 'event-1',
 	timestamp: Date.parse('2026-09-01T16:59:00Z'),
@@ -59,6 +71,8 @@ beforeEach(() => {
 	mocks.processEventOnce.mockImplementation((_id, work) => work(executor));
 	mocks.insertTransaction.mockImplementation(async (tx) => ({ id: 1, ...tx }));
 	mocks.getPendingSlip.mockResolvedValue(null);
+	mocks.updateOwnedPendingSlip.mockImplementation(async (_id, _userId, values) => ({ ...pendingReady, ...values }));
+	mocks.consumePendingSlip.mockResolvedValue(null);
 	mocks.listBills.mockResolvedValue([]);
 	mocks.getUnpaidBillTotal.mockResolvedValue(0);
 	mocks.getMonthlyPlan.mockResolvedValue(null);
@@ -205,14 +219,69 @@ describe('LINE processing', () => {
 		expect(mocks.processPendingSlip).toHaveBeenCalledWith(7);
 	});
 
-	it('uses the OCR amount when the slip follow-up only describes the expense', async () => {
-		mocks.getPendingSlip.mockResolvedValue({ id: 7, lineUserId: 'owner', messageId: 'image-1', status: 'ready', amount: '100.00', occurredAt: null, ocrText: 'จำนวนเงิน 100.00 บาท' });
-		mocks.parseMessage
-			.mockResolvedValueOnce({ type: 'unknown', text: 'ค่าอาหาร' })
-			.mockResolvedValueOnce({ type: 'transaction', tx: { kind: 'expense', amount: 100, categoryId: 'food', note: 'ค่าอาหาร', occurredAt: new Date(event.timestamp!), parsedBy: 'rule' } });
+	it('updates the OCR draft without saving when follow-up describes the expense', async () => {
+		mocks.getPendingSlip.mockResolvedValue(pendingReady);
+		mocks.parseMessage.mockResolvedValueOnce({ type: 'transaction', tx: { kind: 'expense', amount: 100, categoryId: 'food', note: 'ค่าอาหาร', occurredAt: pendingReady.occurredAt, parsedBy: 'rule' } });
 		await handleEvents([{ ...event, message: { id: 'message-2', type: 'text', text: 'ค่าอาหาร' } }]);
-		expect(mocks.parseMessage).toHaveBeenNthCalledWith(2, 'ค่าอาหาร 100.00', new Date(event.timestamp!));
-		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ paymentMethod: 'bank', parsedBy: 'ocr' }), executor);
-		expect(mocks.deletePendingSlip).toHaveBeenCalledWith(owner.id, executor);
+		expect(mocks.parseMessage).toHaveBeenCalledOnce();
+		expect(mocks.parseMessage).toHaveBeenCalledWith('ค่าอาหาร 100.00', pendingReady.occurredAt);
+		expect(mocks.updateOwnedPendingSlip).toHaveBeenCalledWith(7, owner.id, expect.objectContaining({ categoryId: 'food', note: 'ค่าอาหาร' }), executor);
+		expect(mocks.insertTransaction).not.toHaveBeenCalled();
+		expect(mocks.replyQuickReplies).toHaveBeenCalledWith('reply', expect.stringContaining('ตรวจสอบรายการ'), expect.any(Array));
+	});
+
+	it('saves a ready slip only after the save postback', async () => {
+		mocks.getPendingSlip.mockResolvedValue(pendingReady);
+		mocks.consumePendingSlip.mockResolvedValue(pendingReady);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'save-1',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:7' }
+		}]);
+		expect(mocks.consumePendingSlip).toHaveBeenCalledWith(7, owner.id, executor);
+		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({
+			userId: owner.id, amount: '100.00', categoryId: 'other', parsedBy: 'ocr'
+		}), executor);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('บันทึกแล้ว'));
+	});
+
+	it('does not save a stale or already-consumed slip action', async () => {
+		mocks.getPendingSlip.mockResolvedValue(null);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'save-2',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:7' }
+		}]);
+		expect(mocks.consumePendingSlip).not.toHaveBeenCalled();
+		expect(mocks.insertTransaction).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('หมดเวลาแล้ว'));
+	});
+
+	it('rejects a pending id that does not belong to the current action', async () => {
+		mocks.getPendingSlip.mockResolvedValue(pendingReady);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'save-foreign',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:99' }
+		}]);
+		expect(mocks.consumePendingSlip).not.toHaveBeenCalled();
+		expect(mocks.insertTransaction).not.toHaveBeenCalled();
+	});
+
+	it('changes a slip category through a validated postback', async () => {
+		mocks.getPendingSlip.mockResolvedValue(pendingReady);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'category-1',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:category:7:food' }
+		}]);
+		expect(mocks.updateOwnedPendingSlip).toHaveBeenCalledWith(7, owner.id, { categoryId: 'food' }, executor);
+		expect(mocks.replyQuickReplies).toHaveBeenCalled();
+	});
+
+	it('expires old slip drafts before an action can save them', async () => {
+		mocks.getPendingSlip.mockResolvedValue({ ...pendingReady, expiresAt: new Date('2000-01-01T00:00:00Z') });
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'expired-1',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:7' }
+		}]);
+		expect(mocks.deleteOwnedPendingSlip).toHaveBeenCalledWith(7, owner.id, executor);
+		expect(mocks.insertTransaction).not.toHaveBeenCalled();
 	});
 });
