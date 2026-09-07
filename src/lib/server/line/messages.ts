@@ -1,4 +1,4 @@
-import { getCategory } from '$lib/categories';
+import { FALLBACK_CATEGORY, getCategory } from '$lib/categories';
 import type { CategorySlice, Totals } from '$lib/server/db/queries';
 import type { Transaction } from '$lib/server/db/schema';
 import { formatThaiShortDate, formatThaiTime } from '$lib/utils/date';
@@ -20,6 +20,33 @@ export function confirmSaved(tx: Transaction, uncertain: boolean): string {
 		when
 	];
 	if (uncertain) lines.push('', 'ℹ️ เดาหมวดหมู่ให้เป็น "อื่นๆ" — พิมพ์ "ลบ" ถ้าไม่ถูก');
+	return lines.join('\n');
+}
+
+/**
+ * One receipt for a message that carried several entries. Every line is echoed
+ * back with its own amount: a batch that silently recorded the wrong number is
+ * exactly what this feature exists to prevent, so the reply has to be checkable
+ * at a glance.
+ */
+export function confirmSavedMany(saved: Transaction[], skipped: string[]): string {
+	const total = saved.reduce(
+		(sum, tx) => sum + (tx.kind === 'income' ? toNumber(tx.amount) : -toNumber(tx.amount)),
+		0
+	);
+	const lines = [`✅ บันทึก ${saved.length} รายการ`, ''];
+	for (const tx of saved) {
+		const sign = tx.kind === 'income' ? '+' : '-';
+		lines.push(`${sign}${formatNumber(toNumber(tx.amount))} · ${categoryLine(tx.categoryId)}${tx.note ? ` · ${tx.note}` : ''}`);
+	}
+	lines.push('', `รวม ${total >= 0 ? '+' : '-'}${formatNumber(Math.abs(total))} บาท`);
+
+	if (skipped.length > 0) {
+		lines.push('', `⚠️ ข้าม ${skipped.length} บรรทัดที่อ่านไม่ออก`);
+		for (const line of skipped.slice(0, 3)) lines.push(`  "${line}"`);
+	}
+	const uncertain = saved.filter((tx) => tx.categoryId === FALLBACK_CATEGORY[tx.kind]).length;
+	if (uncertain > 0) lines.push('', `ℹ️ ${uncertain} รายการเดาหมวดเป็น "อื่นๆ" — แก้ได้บนเว็บ`);
 	return lines.join('\n');
 }
 
@@ -81,6 +108,10 @@ export function helpText(): string {
 		'ย้อนหลัง — ใส่วันไว้ข้างหน้า',
 		'  เมื่อวาน ข้าว 50',
 		'  1/9 ค่าไฟ 800',
+		'',
+		'หลายรายการ — พิมพ์บรรทัดละรายการ ส่งทีเดียว',
+		'  กาแฟ 60',
+		'  น้ำ 30',
 		'',
 		'สลิปโอนเงิน — ส่งรูปมา แล้วตอบว่าเป็นค่าอะไร',
 		'',

@@ -18,7 +18,7 @@ import type { DbExecutor } from '$lib/server/db/queries';
 import { deletePendingSlip, getPendingSlip, replacePendingSlip } from '$lib/server/db/slips';
 import type { User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
-import { matchCommand, parseMessage } from '$lib/server/parser';
+import { matchCommand, parseEntries, parseMessage } from '$lib/server/parser';
 import type { BotCommand, ParseOutcome } from '$lib/server/parser';
 import {
 	addDays,
@@ -35,6 +35,7 @@ import { formatNumber, toNumber } from '$lib/utils/money';
 import { getDisplayName, pushText, replyText } from './client';
 import {
 	confirmSaved,
+	confirmSavedMany,
 	helpText,
 	dashboardLinkText,
 	joinedText,
@@ -112,12 +113,19 @@ async function handleEvent(event: LineEvent): Promise<void> {
 	// Use the original send time so retries across midnight keep the intended day.
 	const sentAt = event.timestamp === undefined ? new Date() : new Date(event.timestamp);
 	const pending = await getPendingSlip(user.id);
-	let outcome = await parseMessage(text, sentAt);
-	if (pending?.status === 'ready' && outcome.type === 'unknown' && pending.amount) {
-		outcome = await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt);
+	// A slip conversation is about one payment, so it never splits into a list.
+	let outcomes: ParseOutcome[];
+	if (pending) {
+		let outcome = await parseMessage(text, sentAt);
+		if (pending.status === 'ready' && outcome.type === 'unknown' && pending.amount) {
+			outcome = await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt);
+		}
+		outcomes = [outcome];
+	} else {
+		outcomes = await parseEntries(text, sentAt);
 	}
 	const response = await processEventOnce(eventId, (executor) =>
-		respondTo(outcome, text, user, executor, pending)
+		respondTo(outcomes, text, user, executor, pending)
 	);
 	if (response === null) return;
 	try {
@@ -197,7 +205,7 @@ async function handleSlipImage(event: LineEvent, user: User): Promise<void> {
 }
 
 async function respondTo(
-	outcome: ParseOutcome,
+	outcomes: ParseOutcome[],
 	text: string,
 	user: User,
 	executor: DbExecutor,
@@ -208,6 +216,9 @@ async function respondTo(
 		return 'ยกเลิกสลิปแล้ว';
 	}
 	if (pending?.status === 'queued' || pending?.status === 'processing') return 'กำลังอ่านสลิปอยู่ รอข้อความผลลัพธ์สักครู่นะ';
+	if (outcomes.length > 1) return saveBatch(outcomes, text, user, executor);
+
+	const [outcome] = outcomes;
 	if (outcome.type === 'command') return runCommand(outcome.command, user, executor);
 	if (outcome.type === 'unknown') return unknownText();
 
@@ -228,6 +239,44 @@ async function respondTo(
 	if (pending) await deletePendingSlip(user.id, executor);
 
 	return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind]);
+}
+
+/**
+ * Every line of a list lands in the same database transaction, so a message is
+ * never half-recorded. `rawText` keeps the line that produced each entry rather
+ * than the whole message, which is what makes a later mis-parse diagnosable.
+ */
+async function saveBatch(
+	outcomes: ParseOutcome[],
+	text: string,
+	user: User,
+	executor: DbExecutor
+): Promise<string> {
+	const saved = [];
+	const skipped: string[] = [];
+	for (const outcome of outcomes) {
+		if (outcome.type !== 'transaction') {
+			skipped.push(outcome.type === 'unknown' ? outcome.text : text);
+			continue;
+		}
+		const { tx } = outcome;
+		saved.push(
+			await insertTransaction({
+				userId: user.id,
+				kind: tx.kind,
+				amount: tx.amount.toFixed(2),
+				categoryId: tx.categoryId,
+				note: tx.note,
+				occurredAt: tx.occurredAt,
+				paymentMethod: tx.paymentMethod,
+				source: 'line',
+				parsedBy: tx.parsedBy,
+				rawText: tx.note ? `${tx.note} ${tx.amount}` : text,
+				lineUserId: user.lineUserId
+			}, executor)
+		);
+	}
+	return confirmSavedMany(saved, skipped);
 }
 
 async function runCommand(command: BotCommand, user: User, executor: DbExecutor): Promise<string> {
