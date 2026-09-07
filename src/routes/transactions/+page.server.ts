@@ -1,6 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { ALL_CATEGORIES } from '$lib/categories';
 import { DEFAULT_RANGE, resolveRange } from '$lib/ranges';
+import { resolveMonthSelection } from '$lib/month';
 import { deleteTransaction, getTotals, listTransactions } from '$lib/server/db/queries';
 import { requireUserId } from '$lib/server/auth';
 import { toTxView } from '$lib/server/views';
@@ -19,7 +20,11 @@ function parseCategory(value: string | null): string | undefined {
 
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = requireUserId(locals);
-	const range = resolveRange(url.searchParams.get('range') ?? DEFAULT_RANGE);
+	const now = new Date();
+	const month = resolveMonthSelection(url.searchParams.get('month'), now);
+	const rangeId = url.searchParams.get('range') ?? DEFAULT_RANGE;
+	const relativeRange = resolveRange(rangeId, now);
+	const range = relativeRange.id === 'month' ? month : relativeRange;
 	const kind = parseKind(url.searchParams.get('kind'));
 	const categoryId = parseCategory(url.searchParams.get('category'));
 
@@ -30,6 +35,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	return {
 		range: { id: range.id, label: range.label },
+		month,
 		filters: { kind: kind ?? null, categoryId: categoryId ?? null },
 		items: items.map(toTxView),
 		totals,

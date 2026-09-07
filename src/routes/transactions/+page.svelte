@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import RangeTabs from '$lib/components/RangeTabs.svelte';
+	import MonthNavigator from '$lib/components/MonthNavigator.svelte';
 	import TransactionList from '$lib/components/TransactionList.svelte';
 	import { getCategory } from '$lib/categories';
 	import { RANGE_OPTIONS } from '$lib/ranges';
@@ -42,6 +43,8 @@
 	</div>
 	<RangeTabs options={RANGE_OPTIONS} active={data.range.id} />
 </section>
+
+<MonthNavigator month={data.month} />
 
 <div class="filters">
 	<div class="chips" role="group" aria-label="ประเภทรายการ">
@@ -104,6 +107,7 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.6rem;
+		margin-top: var(--stack);
 		margin-bottom: var(--stack);
 	}
 
