@@ -57,9 +57,15 @@ describe('one entry per line', () => {
 		expect(outcomes[0].type).toBe('command');
 	});
 
-	it('does not split several amounts that share one line', async () => {
-		// Deliberate: within a line the parser cannot tell a list from a note, so
-		// this stays one entry and the confirmation shows what was recorded.
-		expect(await amounts('บิล shoppe 3 เดือน 4050 3800 3800')).toEqual([3800]);
+	it('leaves several amounts on one line to the plan parser', async () => {
+		// "บิล ... 3 เดือน" is a payment plan, covered in tests/installment.test.ts.
+		const outcomes = await parseEntries('บิล shoppe 3 เดือน 4050 3800 3800', now);
+		expect(outcomes.map((outcome) => outcome.type)).toEqual(['installment']);
+	});
+
+	it('still keeps several amounts on one line together when there is no plan', async () => {
+		// No plan cue and no month count, so this stays one entry rather than
+		// becoming a list the user never asked for.
+		expect(await amounts('ค่าของ 4050 3800')).toEqual([3800]);
 	});
 });

@@ -1,6 +1,6 @@
 import { FALLBACK_CATEGORY, getCategory } from '$lib/categories';
 import type { CategorySlice, Totals } from '$lib/server/db/queries';
-import type { Transaction } from '$lib/server/db/schema';
+import type { Bill, Transaction } from '$lib/server/db/schema';
 import { formatThaiShortDate, formatThaiTime } from '$lib/utils/date';
 import { formatNumber, toNumber } from '$lib/utils/money';
 
@@ -47,6 +47,21 @@ export function confirmSavedMany(saved: Transaction[], skipped: string[]): strin
 	}
 	const uncertain = saved.filter((tx) => tx.categoryId === FALLBACK_CATEGORY[tx.kind]).length;
 	if (uncertain > 0) lines.push('', `ℹ️ ${uncertain} รายการเดาหมวดเป็น "อื่นๆ" — แก้ได้บนเว็บ`);
+	return lines.join('\n');
+}
+
+/**
+ * A plan is a promise about money not spent yet, so the reply lists every due
+ * date: an instalment landing on the wrong month is only obvious here.
+ */
+export function confirmInstallment(name: string, bills: Bill[]): string {
+	const total = bills.reduce((sum, bill) => sum + toNumber(bill.amount), 0);
+	const lines = [`🧾 ตั้งบิลล่วงหน้า ${bills.length} งวด`, '', name, ''];
+	for (const [index, bill] of bills.entries()) {
+		const due = bill.dueDate ? formatThaiShortDate(bill.dueDate) : 'ยังไม่กำหนด';
+		lines.push(`งวด ${index + 1} · ${formatNumber(toNumber(bill.amount))} บาท · ครบ ${due}`);
+	}
+	lines.push('', `รวม ${formatNumber(total)} บาท`, '', 'แก้หรือลบได้ที่หน้า "บิล" บนเว็บ');
 	return lines.join('\n');
 }
 
@@ -108,6 +123,9 @@ export function helpText(): string {
 		'ย้อนหลัง — ใส่วันไว้ข้างหน้า',
 		'  เมื่อวาน ข้าว 50',
 		'  1/9 ค่าไฟ 800',
+		'',
+		'ผ่อนหลายงวด — บอกจำนวนเดือนกับยอดแต่ละงวด',
+		'  บิล shoppe 3 เดือน 4050 3800 3800',
 		'',
 		'หลายรายการ — พิมพ์บรรทัดละรายการ ส่งทีเดียว',
 		'  กาแฟ 60',

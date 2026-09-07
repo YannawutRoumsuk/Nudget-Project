@@ -4,7 +4,7 @@ import { billDueDate } from '$lib/bills';
 import { config } from '$lib/server/config';
 import { admit, isOwner } from '$lib/server/access';
 import { listMembers } from '$lib/server/db/users';
-import { getUnpaidBillTotal, listBills } from '$lib/server/db/bills';
+import { createBill, getUnpaidBillTotal, listBills } from '$lib/server/db/bills';
 import { getMonthlyPlan } from '$lib/server/db/plans';
 import {
 	processEventOnce,
@@ -19,7 +19,7 @@ import { deletePendingSlip, getPendingSlip, replacePendingSlip } from '$lib/serv
 import type { User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseEntries, parseMessage } from '$lib/server/parser';
-import type { BotCommand, ParseOutcome } from '$lib/server/parser';
+import type { BotCommand, InstallmentPlan, ParseOutcome } from '$lib/server/parser';
 import {
 	addDays,
 	addMonths,
@@ -36,6 +36,7 @@ import { getDisplayName, pushText, replyText } from './client';
 import {
 	confirmSaved,
 	confirmSavedMany,
+	confirmInstallment,
 	helpText,
 	dashboardLinkText,
 	joinedText,
@@ -221,6 +222,9 @@ async function respondTo(
 	const [outcome] = outcomes;
 	if (outcome.type === 'command') return runCommand(outcome.command, user, executor);
 	if (outcome.type === 'unknown') return unknownText();
+	// A plan is money not spent yet, so it becomes upcoming bills rather than
+	// entries in the ledger.
+	if (outcome.type === 'installment') return saveInstallment(outcome.plan, user, executor);
 
 	const { tx } = outcome;
 	const saved = await insertTransaction({
@@ -239,6 +243,30 @@ async function respondTo(
 	if (pending) await deletePendingSlip(user.id, executor);
 
 	return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind]);
+}
+
+/**
+ * Each month of a plan becomes its own one-off bill, numbered in the order the
+ * amounts were typed. Separate bills rather than one recurring bill because the
+ * instalments differ in amount and each is paid off on its own.
+ */
+async function saveInstallment(plan: InstallmentPlan, user: User, executor: DbExecutor): Promise<string> {
+	const saved = [];
+	for (const bill of plan.bills) {
+		saved.push(
+			await createBill({
+				userId: user.id,
+				name: `${plan.name} ${bill.sequence}/${plan.bills.length}`,
+				amount: bill.amount.toFixed(2),
+				categoryId: plan.categoryId,
+				paymentMethod: 'bank',
+				recurrence: 'once',
+				dueDate: bill.dueDate,
+				active: true
+			}, executor)
+		);
+	}
+	return confirmInstallment(plan.name, saved);
 }
 
 /**

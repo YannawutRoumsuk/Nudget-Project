@@ -1,8 +1,10 @@
+import { parseInstallment } from './installment';
 import { parseByLlm } from './llm';
 import { extractDate, extractPaymentMethod, matchCommand, normalize, parseByRules } from './rules';
 import type { ParseOutcome } from './types';
 
 export * from './types';
+export type { InstallmentBill, InstallmentPlan } from './installment';
 export { matchCommand, normalize, parseByRules } from './rules';
 
 /**
@@ -18,6 +20,11 @@ export async function parseMessage(rawText: string, now = new Date()): Promise<P
 	const command = matchCommand(rawText);
 	if (command) return { type: 'command', command };
 	if (extractDate(normalize(rawText), now).invalid) return { type: 'unknown', text: rawText };
+
+	// Checked before the rules: they would read only the last amount of a plan
+	// and drop the rest into the note.
+	const plan = parseInstallment(rawText, now);
+	if (plan) return { type: 'installment', plan };
 
 	const ruled = parseByRules(rawText, now);
 	if (ruled?.categoryMatched) return { type: 'transaction', tx: ruled.tx };

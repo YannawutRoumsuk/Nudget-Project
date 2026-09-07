@@ -1,4 +1,5 @@
 import type { PaymentMethod, TxKind } from '$lib/server/db/schema';
+import type { InstallmentPlan } from './installment';
 
 export interface ParsedTransaction {
 	kind: TxKind;
@@ -16,4 +17,6 @@ export type BotCommand = 'help' | 'today' | 'month' | 'summary' | 'bills' | 'bud
 export type ParseOutcome =
 	| { type: 'command'; command: BotCommand }
 	| { type: 'transaction'; tx: ParsedTransaction }
+	/** A payment plan: several future bills rather than money already spent. */
+	| { type: 'installment'; plan: InstallmentPlan }
 	| { type: 'unknown'; text: string };
