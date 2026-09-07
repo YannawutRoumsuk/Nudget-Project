@@ -11,8 +11,8 @@ import {
 	listTransactions
 } from '$lib/server/db/queries';
 import { requireUserId } from '$lib/server/auth';
-import { confirmSaved } from '$lib/server/line/messages';
-import { parseMessage } from '$lib/server/parser';
+import { confirmSaved, confirmSavedMany } from '$lib/server/line/messages';
+import { parseEntries } from '$lib/server/parser';
 import { toTxView } from '$lib/server/views';
 import { bangkokDayKey } from '$lib/utils/date';
 import type { Actions, PageServerLoad } from './$types';
@@ -51,8 +51,11 @@ export const actions: Actions = {
 		const text = String(form.get('text') ?? '').trim();
 		if (!text) return fail(400, { action: 'add', ok: false, message: 'พิมพ์รายการก่อน' });
 
-		const outcome = await parseMessage(text);
-		if (outcome.type !== 'transaction') {
+		// The same parser as the chat, so a list pasted into the box behaves the
+		// way it does in LINE — one entry per line.
+		const outcomes = await parseEntries(text);
+		const entries = outcomes.filter((outcome) => outcome.type === 'transaction');
+		if (entries.length === 0) {
 			return fail(422, {
 				action: 'add',
 				ok: false,
@@ -60,24 +63,34 @@ export const actions: Actions = {
 			});
 		}
 
-		const { tx } = outcome;
-		const saved = await insertTransaction({
-			userId,
-			kind: tx.kind,
-			amount: tx.amount.toFixed(2),
-			categoryId: tx.categoryId,
-			note: tx.note,
-			occurredAt: tx.occurredAt,
-			paymentMethod: tx.paymentMethod,
-			source: 'web',
-			parsedBy: tx.parsedBy,
-			rawText: text
-		});
+		const saved = [];
+		for (const { tx } of entries) {
+			saved.push(
+				await insertTransaction({
+					userId,
+					kind: tx.kind,
+					amount: tx.amount.toFixed(2),
+					categoryId: tx.categoryId,
+					note: tx.note,
+					occurredAt: tx.occurredAt,
+					paymentMethod: tx.paymentMethod,
+					source: 'web',
+					parsedBy: tx.parsedBy,
+					rawText: entries.length > 1 && tx.note ? `${tx.note} ${tx.amount}` : text
+				})
+			);
+		}
 
+		const skipped = outcomes
+			.filter((outcome) => outcome.type === 'unknown')
+			.map((outcome) => outcome.text);
 		return {
 			action: 'add',
 			ok: true,
-			message: confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind])
+			message:
+				saved.length === 1 && skipped.length === 0
+					? confirmSaved(saved[0], saved[0].categoryId === FALLBACK_CATEGORY[saved[0].kind])
+					: confirmSavedMany(saved, skipped)
 		};
 	},
 

@@ -26,7 +26,14 @@ vi.mock('$lib/server/db/bills', () => ({ listBills: mocks.listBills, getUnpaidBi
 vi.mock('$lib/server/db/plans', () => ({ getMonthlyPlan: mocks.getMonthlyPlan }));
 vi.mock('$lib/server/ocr/slip', () => ({ readSlip: mocks.readSlip }));
 vi.mock('$lib/server/ocr/processor', () => ({ processPendingSlip: mocks.processPendingSlip }));
-vi.mock('$lib/server/parser', () => ({ parseMessage: mocks.parseMessage, matchCommand: (text: string) => text === 'ไอดี' ? 'whoami' : text === 'สมาชิก' ? 'members' : null }));
+vi.mock('$lib/server/parser', () => ({
+	parseMessage: mocks.parseMessage,
+	// The handler asks for a list; these tests are about the single-entry path,
+	// so one outcome comes back and the multi-entry rules are covered separately
+	// in tests/multi-entry.test.ts.
+	parseEntries: async (text: string, now?: Date) => [await mocks.parseMessage(text, now)],
+	matchCommand: (text: string) => (text === 'ไอดี' ? 'whoami' : text === 'สมาชิก' ? 'members' : null)
+}));
 vi.mock('../src/lib/server/line/client', () => ({
 	replyText: mocks.replyText,
 	pushText: mocks.pushText,
