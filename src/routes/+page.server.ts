@@ -58,7 +58,7 @@ export const actions: Actions = {
 
 		// The same parser as the chat, so a list pasted into the box behaves the
 		// way it does in LINE — one entry per line.
-		const outcomes = await parseEntries(text);
+		const outcomes = await parseEntries(text, new Date(), { userId });
 		const entries = outcomes.filter((outcome) => outcome.type === 'transaction');
 		if (entries.length === 0) {
 			return fail(422, {
