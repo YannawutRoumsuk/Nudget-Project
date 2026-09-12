@@ -3,6 +3,11 @@
 	import { bangkokDayKey } from '$lib/utils/date';
 	import type { BillRecurrence, PaymentMethod } from '$lib/server/db/schema';
 
+	/**
+	 * Without an `id` these are just starting values for a new bill, which is
+	 * what copying an existing one hands over. With one, the form is editing a
+	 * saved bill and gains the switch that turns it off.
+	 */
 	interface BillValues {
 		id?: number;
 		name: string;
@@ -12,7 +17,7 @@
 		recurrence: BillRecurrence;
 		dueDay: number | null;
 		dueDate: Date | null;
-		active: boolean;
+		active?: boolean;
 	}
 
 	// Radio grouping is per form element, so several of these can share a page
@@ -119,16 +124,16 @@
 					{/each}
 				</select>
 			</label>
-			{#if bill}
+			{#if bill?.id !== undefined}
 				<label class="check">
-					<input name="active" type="checkbox" checked={bill.active} />
+					<input name="active" type="checkbox" checked={bill.active ?? true} />
 					<span>ใช้งานอยู่</span>
 				</label>
 			{/if}
 		</div>
 	</details>
 
-	{#if !bill}<input type="hidden" name="active" value="true" />{/if}
+	{#if bill?.id === undefined}<input type="hidden" name="active" value="true" />{/if}
 	<button type="submit">{submitLabel}</button>
 </form>
 

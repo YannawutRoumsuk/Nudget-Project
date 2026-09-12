@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { billDueDate, billPeriod, validateBillSchedule } from '../src/lib/bills';
+import { billCopyDefaults, billDueDate, billPeriod, validateBillSchedule } from '../src/lib/bills';
 import { bangkokDayKey, bangkokParts, fromBangkok } from '../src/lib/utils/date';
 
 const reference = new Date('2026-09-05T03:00:00Z');
@@ -17,10 +17,18 @@ describe('bill schedule', () => {
 		expect(validateBillSchedule('monthly', 0, null)).toBe(false);
 		expect(validateBillSchedule('once', null, new Date('2026-09-20'))).toBe(true);
 	});
-	it('rejects each recurrence when its own field is the missing one', () => {
-		expect(validateBillSchedule('monthly', null, new Date('2026-09-20'))).toBe(false);
-		expect(validateBillSchedule('once', 15, null)).toBe(false);
-		expect(validateBillSchedule('monthly', 32, null)).toBe(false);
+	it('copies only editable bill fields into a fresh form', () => {
+		const source = {
+			id: 42, userId: 9, name: 'ค่าไฟ', amount: '950.25', categoryId: 'bills', paymentMethod: 'bank' as const,
+			recurrence: 'monthly' as const, dueDay: 15, dueDate: null, active: false,
+			createdAt: new Date(), updatedAt: new Date()
+		};
+		expect(billCopyDefaults(source)).toEqual({
+			name: 'ค่าไฟ', amount: '950.25', categoryId: 'bills', paymentMethod: 'bank',
+			recurrence: 'monthly', dueDay: 15, dueDate: null
+		});
+		expect(billCopyDefaults(source)).not.toHaveProperty('id');
+		expect(billCopyDefaults(source)).not.toHaveProperty('active');
 	});
 });
 

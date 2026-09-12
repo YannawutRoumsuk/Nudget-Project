@@ -1,4 +1,4 @@
-import { FALLBACK_CATEGORY } from '$lib/categories';
+import { EXPENSE_CATEGORIES, FALLBACK_CATEGORY } from '$lib/categories';
 import { analyzeBudget } from '$lib/budget';
 import { billDueDate } from '$lib/bills';
 import { config } from '$lib/server/config';
@@ -20,11 +20,18 @@ import {
 	getPaymentMethodTotal,
 	getTotals,
 	insertTransaction,
-	updateLatestTransactionNote
+	updateLatestTransactionNote,
 } from '$lib/server/db/queries';
 import type { DbExecutor } from '$lib/server/db/queries';
-import { deletePendingSlip, getPendingSlip, replacePendingSlip } from '$lib/server/db/slips';
-import type { Feedback, User } from '$lib/server/db/schema';
+import {
+	consumePendingSlip,
+	deleteOwnedPendingSlip,
+	deletePendingSlip,
+	getPendingSlip,
+	replacePendingSlip,
+	updateOwnedPendingSlip
+} from '$lib/server/db/slips';
+import type { Feedback, PendingSlip, User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseEntries, parseMessage } from '$lib/server/parser';
 import type { BotCommand, InstallmentPlan, ParseOutcome } from '$lib/server/parser';
@@ -40,12 +47,12 @@ import {
 	daysInBangkokMonth
 } from '$lib/utils/date';
 import { formatNumber, toNumber } from '$lib/utils/money';
-import { getDisplayName, pushText, replyText } from './client';
+import { getDisplayName, pushText, replyQuickReplies, replyText } from './client';
 import {
+	confirmInstallment,
 	confirmNoteUpdated,
 	confirmSaved,
 	confirmSavedMany,
-	confirmInstallment,
 	helpText,
 	dashboardLinkText,
 	feedbackPromptText,
@@ -59,6 +66,8 @@ import {
 	releaseNotesText,
 	revokedText,
 	setupText,
+	slipReviewActions,
+	slipReviewText,
 	summaryText,
 	undoText,
 	unknownText,
@@ -101,16 +110,20 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		return;
 	}
 
-	if (event.type !== 'message' || !event.message) return;
-	const text = event.message.text ?? '';
+	const text = event.type === 'message' ? event.message?.text ?? '' : '';
 	// Bootstrap identity without allowing access to the personal ledger.
-	if (matchCommand(text) === 'whoami') {
+	if (event.type === 'message' && matchCommand(text) === 'whoami') {
 		await replyText(event.replyToken, userId ? `LINE userId ของคุณคือ\n${userId}` : 'ไม่พบ userId ในข้อความนี้');
 		return;
 	}
 
 	const user = await gateOnMembership(event.replyToken, userId);
 	if (!user) return;
+	if (event.type === 'postback' && event.postback) {
+		await handleSlipPostback(event, user);
+		return;
+	}
+	if (event.type !== 'message' || !event.message) return;
 	// Answered outside the ledger transaction: it reads other people's rows, so
 	// it has no business inside a per-user write, and it must not be deduped.
 	if (matchCommand(text) === 'members') {
@@ -139,16 +152,19 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		await sendQuietly(() => replyText(event.replyToken as string, captured.reply as string));
 		return;
 	}
+	const command = matchCommand(text);
 	// A slip conversation is about one payment, so it never splits into a list.
+	// Everything else may carry one entry per line.
 	let outcomes: ParseOutcome[];
-	// A failed read is not a conversation any more, so the message after it is
-	// read like any other and may carry several entries.
 	if (pending && pending.status !== 'failed') {
-		let outcome = await parseMessage(text, sentAt);
-		if (pending.status === 'ready' && outcome.type === 'unknown' && pending.amount) {
-			outcome = await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt);
-		}
-		outcomes = [outcome];
+		// A ready slip already supplies the amount, so the user's description is
+		// parsed once with that amount. This avoids spending an LLM fallback call
+		// on text such as “ค่าอาหาร” that intentionally contains no number.
+		outcomes = [
+			pending.status === 'ready' && pending.amount && !command
+				? await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt)
+				: await parseMessage(text, sentAt)
+		];
 	} else {
 		outcomes = await parseEntries(text, sentAt);
 	}
@@ -157,10 +173,103 @@ async function handleEvent(event: LineEvent): Promise<void> {
 	);
 	if (response === null) return;
 	try {
-		await replyText(event.replyToken, response);
+		await replyResponse(event.replyToken, response);
 	} catch (error) {
 		// The ledger is committed; a failed confirmation must not repeat mutations.
 		console.error('[line] confirmation failed:', error);
+	}
+}
+
+type LineResponse =
+	| string
+	| { kind: 'slip'; slip: PendingSlip }
+	| { kind: 'categories'; pendingId: number };
+
+async function replyResponse(replyToken: string, response: LineResponse): Promise<void> {
+	if (typeof response === 'string') {
+		await replyText(replyToken, response);
+		return;
+	}
+	if (response.kind === 'categories') {
+		await replyQuickReplies(replyToken, 'เลือกหมวดหมู่ของรายการนี้', EXPENSE_CATEGORIES.map((category) => ({
+			label: `${category.icon} ${category.nameTh}`,
+			data: `slip:category:${response.pendingId}:${category.id}`
+		})));
+		return;
+	}
+	await replyQuickReplies(replyToken, slipReviewText(response.slip), slipReviewActions(response.slip.id));
+}
+
+function pendingExpired(pending: PendingSlip): boolean {
+	return Boolean(pending.expiresAt && pending.expiresAt.getTime() <= Date.now());
+}
+
+async function handleSlipPostback(event: LineEvent, user: User): Promise<void> {
+	if (!event.replyToken) return;
+	const data = event.postback?.data ?? '';
+	const categoryMatch = /^slip:category:(\d+):([a-z_]{1,32})$/.exec(data);
+	const actionMatch = /^slip:(save|edit-amount|change-category|change-date|cancel):(\d+)$/.exec(data);
+	if (!categoryMatch && !actionMatch) return;
+	const pendingId = Number(categoryMatch?.[1] ?? actionMatch?.[2]);
+	if (!Number.isSafeInteger(pendingId) || pendingId <= 0) return;
+	const eventId = event.webhookEventId;
+	if (!eventId) throw new Error('LINE postback has no event identifier');
+
+	const response = await processEventOnce(eventId, async (executor): Promise<LineResponse> => {
+		const pending = await getPendingSlip(user.id, executor);
+		if (!pending || pending.id !== pendingId) return 'รายการนี้ถูกบันทึก ยกเลิก หรือหมดเวลาแล้ว';
+		if (pendingExpired(pending)) {
+			await deleteOwnedPendingSlip(pending.id, user.id, executor);
+			return 'สลิปนี้หมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+		}
+
+		if (categoryMatch) {
+			const category = EXPENSE_CATEGORIES.find((item) => item.id === categoryMatch[2]);
+			if (!category) return 'ไม่พบหมวดหมู่นี้';
+			const updated = await updateOwnedPendingSlip(pending.id, user.id, { categoryId: category.id }, executor);
+			return updated ? { kind: 'slip', slip: updated } : 'รายการนี้หมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+		}
+
+		switch (actionMatch![1]) {
+			case 'edit-amount':
+				return 'พิมพ์ยอดใหม่ เช่น “ยอด 350”';
+			case 'change-date':
+				return 'พิมพ์วันที่ใหม่ เช่น “วันที่ 7/9/2026”';
+			case 'change-category':
+				return { kind: 'categories', pendingId: pending.id };
+			case 'cancel':
+				await deleteOwnedPendingSlip(pending.id, user.id, executor);
+				return 'ยกเลิกสลิปแล้ว';
+			case 'save': {
+				if (!pending.amount || toNumber(pending.amount) <= 0) return 'ยังไม่มียอดเงิน กด “แก้ยอด” ก่อนบันทึก';
+				const claimed = await consumePendingSlip(pending.id, user.id, executor);
+				if (!claimed) return 'รายการนี้ถูกบันทึก ยกเลิก หรือหมดเวลาแล้ว';
+				const saved = await insertTransaction({
+					userId: user.id,
+					kind: 'expense',
+					amount: claimed.amount!,
+					categoryId: claimed.categoryId,
+					note: claimed.note,
+					occurredAt: claimed.occurredAt ?? new Date(),
+					paymentMethod: claimed.paymentMethod,
+					source: 'line',
+					parsedBy: 'ocr',
+					rawText: `[OCR]\n${claimed.ocrText}`,
+					lineUserId: user.lineUserId
+				}, executor);
+				return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY.expense);
+			}
+		}
+		return 'ไม่รู้จักคำสั่งนี้';
+	});
+	if (response !== null) {
+		try {
+			await replyResponse(event.replyToken, response);
+		} catch (error) {
+			// Mutations are committed and deduped; failing the webhook here would
+			// only make LINE retry an action whose side effect already succeeded.
+			console.error('[line] postback response failed:', error);
+		}
 	}
 }
 
@@ -223,7 +332,7 @@ async function handleSlipImage(event: LineEvent, user: User): Promise<void> {
 	const claimed = await processEventOnce(eventId, async (executor) => {
 		// Sending a slip abandons any half-finished conversation: the reply that
 		// follows is about this payment, and feedback mode would otherwise file
-		// "ค่าอาหาร" as a complaint and leave the slip unrecorded.
+		// “ค่าอาหาร” as a complaint and leave the slip unrecorded.
 		await setPendingAction(user.id, null, executor);
 		return replacePendingSlip({ userId: user.id, lineUserId: user.lineUserId, messageId, status: 'queued' }, executor);
 	});
@@ -237,8 +346,8 @@ async function handleSlipImage(event: LineEvent, user: User): Promise<void> {
 		});
 	}
 	// A second image silently throws away the first read (issue #43). Saying so
-	// is what stops the result message that still arrives for the old slip from
-	// looking like a duplicate answer about the new one.
+	// is what stops the result that still arrives for the old slip from looking
+	// like a duplicate answer about the new one.
 	const acknowledgement = claimed.replaced
 		? '🔄 ยกเลิกสลิปใบก่อนหน้าแล้ว\n\n🧾 รับสลิปใบใหม่แล้ว กำลังอ่านให้นะ'
 		: '🧾 รับสลิปแล้ว กำลังอ่านยอดและวันที่ให้นะ\n\nใช้เวลาสักครู่ ไม่ต้องส่งซ้ำ พิมพ์ “ยกเลิก” ได้ถ้าเปลี่ยนใจ';
@@ -255,7 +364,11 @@ async function respondTo(
 	user: User,
 	executor: DbExecutor,
 	pending: Awaited<ReturnType<typeof getPendingSlip>> = null
-): Promise<string> {
+): Promise<LineResponse> {
+	if (pending && pendingExpired(pending)) {
+		await deleteOwnedPendingSlip(pending.id, user.id, executor);
+		return 'สลิปก่อนหน้าหมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+	}
 	if (pending && /^(?:ยกเลิก|cancel)$/i.test(text.trim())) {
 		await deletePendingSlip(user.id, executor);
 		return 'ยกเลิกสลิปแล้ว';
@@ -264,10 +377,9 @@ async function respondTo(
 	// A failed read invites the person to type the entry by hand, and that entry
 	// owes nothing to OCR. Leaving the husk in place would stamp it `parsedBy:
 	// 'ocr'` and staple an empty transcript to it.
-	let slip = pending;
-	if (slip?.status === 'failed') {
+	if (pending?.status === 'failed') {
 		await deletePendingSlip(user.id, executor);
-		slip = null;
+		pending = null;
 	}
 	if (outcomes.length > 1) return saveBatch(outcomes, text, user, executor);
 
@@ -275,15 +387,34 @@ async function respondTo(
 	if (outcome.type === 'command') {
 		// Starting another conversation now would strand the slip: it holds an
 		// amount and a date that exist nowhere else once it is replaced.
-		if (slip && outcome.command === 'feedback') {
+		if (pending && outcome.command === 'feedback') {
 			return 'ยังมีสลิปที่อ่านเสร็จรออยู่ ตอบว่าเป็นค่าอะไรก่อน หรือพิมพ์ “ยกเลิก” แล้วค่อยส่งฟีดแบ็ก';
 		}
 		return runCommand(outcome.command, user, executor);
 	}
-	if (outcome.type === 'unknown') return unknownText(outcome.text);
 	// A plan is money not spent yet, so it becomes upcoming bills rather than
-	// entries in the ledger.
+	// entries in the ledger. Answered before the slip branch: a plan typed while
+	// a slip waits is still a plan, and the slip keeps waiting.
 	if (outcome.type === 'installment') return saveInstallment(outcome.plan, user, executor);
+	if (pending?.status === 'ready') {
+		if (outcome.type === 'unknown') return 'บอกว่าเป็นค่าอะไร หรือกดปุ่มด้านล่างเพื่อแก้ไขและบันทึก';
+		const trimmed = text.trim();
+		let values: Parameters<typeof updateOwnedPendingSlip>[2];
+		if (/^(?:ยอด|จำนวนเงิน?)\s*/i.test(trimmed)) {
+			values = { amount: outcome.tx.amount.toFixed(2) };
+		} else if (/^วันที่\s*/i.test(trimmed)) {
+			values = { occurredAt: outcome.tx.occurredAt };
+		} else {
+			values = {
+				amount: outcome.tx.amount.toFixed(2),
+				categoryId: outcome.tx.categoryId,
+				note: outcome.tx.note || pending.note
+			};
+		}
+		const updated = await updateOwnedPendingSlip(pending.id, user.id, values, executor);
+		return updated ? { kind: 'slip', slip: updated } : 'สลิปนี้หมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
+	}
+	if (outcome.type === 'unknown') return unknownText(outcome.text);
 
 	const { tx } = outcome;
 	const saved = await insertTransaction({
@@ -292,16 +423,66 @@ async function respondTo(
 		amount: tx.amount.toFixed(2),
 		categoryId: tx.categoryId,
 		note: tx.note,
-		occurredAt: slip?.occurredAt ?? tx.occurredAt,
-		paymentMethod: slip ? 'bank' : tx.paymentMethod,
+		occurredAt: tx.occurredAt,
+		paymentMethod: tx.paymentMethod,
 		source: 'line',
-		parsedBy: slip ? 'ocr' : tx.parsedBy,
-		rawText: slip ? `${text}\n[OCR]\n${slip.ocrText}` : text,
+		parsedBy: tx.parsedBy,
+		rawText: text,
 		lineUserId: user.lineUserId
 	}, executor);
-	if (slip) await deletePendingSlip(user.id, executor);
-
 	return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind]);
+}
+
+async function runCommand(command: BotCommand, user: User, executor: DbExecutor): Promise<string> {
+	// Only the two commands that carry a payload are objects; everything else
+	// stays a plain string so the switch below is still checked exhaustively.
+	if (typeof command === 'object') {
+		if (command.command === 'help') return helpText(command.topic);
+		return updateNote(command.text, user, executor);
+	}
+	switch (command) {
+		case 'help':
+			return helpText();
+		case 'whoami':
+			return `LINE userId ของคุณคือ\n${user.lineUserId}`;
+		case 'web':
+			// The rich menu is a phone-only affordance; on iPad and desktop LINE
+			// this is how someone reaches the dashboard at all.
+			return dashboardLinkText(config.publicBaseUrl);
+		case 'members':
+			// Answered in handleEvent: it reads across users, so it must not run
+			// inside this user's write transaction.
+			throw new Error('members must be handled before the ledger transaction');
+		case 'feedback':
+			// The message itself comes next: what someone wants to say rarely fits
+			// on the line that opens the conversation.
+			await setPendingAction(user.id, 'feedback', executor);
+			return feedbackPromptText();
+		case 'release': {
+			const [latest] = releases;
+			return latest ? releaseNotesText(latest) : noReleaseText();
+		}
+		case 'feedback':
+			// The message itself comes next: what someone wants to say rarely fits
+			// on the line that opens the conversation.
+			await setPendingAction(user.id, 'feedback', executor);
+			return feedbackPromptText();
+		case 'release': {
+			const [latest] = releases;
+			return latest ? releaseNotesText(latest) : noReleaseText();
+		}
+		case 'undo':
+			return undoText(await deleteLatestTransaction(user.id, executor));
+		case 'bills':
+			return billsSummary(user.id);
+		case 'budget':
+			return budgetSummary(user.id, executor);
+		case 'today':
+			return dailySummary(user.id, executor);
+		case 'month':
+		case 'summary':
+			return monthlySummary(user.id, executor);
+	}
 }
 
 /**
@@ -364,49 +545,6 @@ async function saveBatch(
 		);
 	}
 	return confirmSavedMany(saved, skipped);
-}
-
-async function runCommand(command: BotCommand, user: User, executor: DbExecutor): Promise<string> {
-	// Only the two commands that carry a payload are objects; everything else
-	// stays a plain string so the switch below is still checked exhaustively.
-	if (typeof command === 'object') {
-		if (command.command === 'help') return helpText(command.topic);
-		return updateNote(command.text, user, executor);
-	}
-	switch (command) {
-		case 'help':
-			return helpText();
-		case 'whoami':
-			return `LINE userId ของคุณคือ\n${user.lineUserId}`;
-		case 'web':
-			// The rich menu is a phone-only affordance; on iPad and desktop LINE
-			// this is how someone reaches the dashboard at all.
-			return dashboardLinkText(config.publicBaseUrl);
-		case 'members':
-			// Answered in handleEvent: it reads across users, so it must not run
-			// inside this user's write transaction.
-			throw new Error('members must be handled before the ledger transaction');
-		case 'feedback':
-			// The message itself comes next: what someone wants to say rarely fits
-			// on the line that opens the conversation.
-			await setPendingAction(user.id, 'feedback', executor);
-			return feedbackPromptText();
-		case 'release': {
-			const [latest] = releases;
-			return latest ? releaseNotesText(latest) : noReleaseText();
-		}
-		case 'undo':
-			return undoText(await deleteLatestTransaction(user.id, executor));
-		case 'bills':
-			return billsSummary(user.id);
-		case 'budget':
-			return budgetSummary(user.id, executor);
-		case 'today':
-			return dailySummary(user.id, executor);
-		case 'month':
-		case 'summary':
-			return monthlySummary(user.id, executor);
-	}
 }
 
 /**

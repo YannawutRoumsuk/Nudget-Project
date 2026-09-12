@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import BillForm from '$lib/components/BillForm.svelte';
 	import { getCategory } from '$lib/categories';
 	import { billDueDate } from '$lib/bills';
@@ -14,6 +15,12 @@
 		credit_card: 'บัตรเครดิต',
 		wallet: 'วอลเล็ต'
 	};
+
+	function copyHref(id: number): string {
+		const params = new URLSearchParams(page.url.searchParams);
+		params.set('copy', String(id));
+		return `/bills?${params}#new-bill`;
+	}
 </script>
 
 <svelte:head><title>บิล · Nudget</title></svelte:head>
@@ -25,10 +32,18 @@
 </section>
 
 {#if form?.message}<p class="notice">{form.message}</p>{/if}
+{#if data.copyMissing}<p class="notice">ไม่พบบิลต้นฉบับในบัญชีนี้</p>{/if}
 
-<details class="card add" open={data.bills.length === 0}>
-	<summary>＋ เพิ่มบิล</summary>
-	<BillForm action="?/create" submitLabel="เพิ่มบิล" />
+<details id="new-bill" class="card add" open={data.bills.length === 0 || Boolean(data.copy)}>
+	<summary>{data.copy ? `คัดลอก “${data.copy.name}” เป็นบิลใหม่` : '＋ เพิ่มบิล'}</summary>
+	<!-- A copy arrives without an id, so the form treats it as starting values
+	     for a new bill rather than an edit of the one it came from. -->
+	<BillForm
+		action="?/create"
+		submitLabel={data.copy ? 'สร้างบิลใหม่' : 'เพิ่มบิล'}
+		bill={data.copy}
+	/>
+	{#if data.copy}<a class="cancel" href="/bills">ยกเลิกการคัดลอก</a>{/if}
 </details>
 
 <section class="bill-list">
@@ -47,12 +62,15 @@
 					? `ครบ ${formatThaiShortDate(due)}`
 					: 'ยังไม่กำหนดวัน'} · {METHOD_LABELS[bill.paymentMethod] ?? bill.paymentMethod}
 			</p>
-			<form method="POST" action={bill.paid ? '?/unpaid' : '?/paid'} class="paid-form">
-				<input type="hidden" name="id" value={bill.id} />
-				<button class:done={bill.paid} type="submit">
-					{bill.paid ? '✓ จ่ายแล้ว — กดเพื่อย้อนกลับ' : 'ทำเครื่องหมายว่าจ่ายแล้ว'}
-				</button>
-			</form>
+			<div class="bill-actions">
+				<form method="POST" action={bill.paid ? '?/unpaid' : '?/paid'} class="paid-form">
+					<input type="hidden" name="id" value={bill.id} />
+					<button class:done={bill.paid} type="submit">
+						{bill.paid ? '✓ จ่ายแล้ว — กดเพื่อย้อนกลับ' : 'ทำเครื่องหมายว่าจ่ายแล้ว'}
+					</button>
+				</form>
+				<a class="copy" href={copyHref(bill.id)}>คัดลอก</a>
+			</div>
 			<details>
 				<summary>แก้ไข</summary>
 				<BillForm action="?/update" submitLabel="บันทึก" {bill} />
@@ -114,6 +132,33 @@
 	.due {
 		margin: 0.35rem 0 0.8rem;
 		font-size: var(--text-sm);
+	}
+	.bill-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.paid-form {
+		flex: 1;
+	}
+	.cancel {
+		display: inline-block;
+		margin-top: 0.6rem;
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
+		text-decoration: underline;
+	}
+	.copy {
+		display: grid;
+		place-items: center;
+		padding: 0.6rem 0.85rem;
+		border: 1px solid var(--rule-strong);
+		border-radius: var(--radius);
+		font-size: var(--text-sm);
+		font-weight: 600;
+	}
+	.copy:hover {
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 	.paid-form button {
 		width: 100%;

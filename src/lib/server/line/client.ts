@@ -50,6 +50,9 @@ export interface PostbackAction {
 	data: string;
 }
 
+/** A postback action rendered in LINE's quick-reply bar. */
+export type QuickReplyAction = PostbackAction;
+
 /** LINE's own caps on a buttons template: 160 characters of text, 4 actions. */
 const MAX_TEMPLATE_TEXT = 160;
 const MAX_ACTIONS = 4;
@@ -77,6 +80,34 @@ export async function pushButtons(to: string, text: string, actions: PostbackAct
 
 export async function replyButtons(replyToken: string, text: string, actions: PostbackAction[]): Promise<void> {
 	await post(REPLY_URL, { replyToken, messages: [toButtonsMessage(text, actions)] });
+}
+
+const MAX_QUICK_REPLY_ITEMS = 13;
+
+function toQuickReplyMessage(text: string, actions: QuickReplyAction[]) {
+	return {
+		type: 'text',
+		text: text.slice(0, MAX_TEXT),
+		quickReply: {
+			items: actions.slice(0, MAX_QUICK_REPLY_ITEMS).map((action) => ({
+				type: 'action',
+				action: {
+					type: 'postback',
+					label: action.label.slice(0, 20),
+					data: action.data,
+					displayText: action.label.slice(0, 20)
+				}
+			}))
+		}
+	};
+}
+
+export async function pushQuickReplies(to: string, text: string, actions: QuickReplyAction[]): Promise<boolean> {
+	return post(PUSH_URL, { to, messages: [toQuickReplyMessage(text, actions)] });
+}
+
+export async function replyQuickReplies(replyToken: string, text: string, actions: QuickReplyAction[]): Promise<void> {
+	await post(REPLY_URL, { replyToken, messages: [toQuickReplyMessage(text, actions)] });
 }
 
 /**

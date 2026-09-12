@@ -131,6 +131,8 @@ suite('membership against a real database', async () => {
 		expect(exported.transactions.map((row) => row.id)).toEqual([txA.id]);
 		expect(exported.bills.map((row) => row.name)).toEqual(['ค่าไฟ เอ']);
 		expect(exported.bills.map((row) => row.id)).toEqual([billA.id]);
+		const { getBill } = await import('../src/lib/server/db/bills');
+		expect(await getBill(billB.id, userA)).toBeNull();
 		expect(exported.bills[0]?.dueDate).toBe('2026-09-01');
 		expect(exported.billPayments).toHaveLength(1);
 		expect(exported.billPayments.map((row) => row.billId)).toEqual([billA.id]);
