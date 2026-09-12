@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
 	getMessageContent: vi.fn(), pushText: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
 	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
+	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
+	updateLatestTransactionNote: vi.fn(),
 	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, publicBaseUrl: 'https://nudget.example' }
 }));
 vi.mock('$lib/server/config', () => ({ config: mocks.config }));
@@ -14,7 +16,18 @@ vi.mock('$lib/server/access', () => ({
 	admit: mocks.admit,
 	isOwner: (id: string) => mocks.config.line.allowedUserIds.includes(id)
 }));
-vi.mock('$lib/server/db/users', () => ({ listMembers: mocks.listMembers }));
+vi.mock('$lib/server/db/users', () => ({
+	listMembers: mocks.listMembers,
+	setPendingAction: mocks.setPendingAction,
+	claimPendingAction: mocks.claimPendingAction,
+	pendingActionIsLive: (user: { pendingActionAt: Date | null }) => user.pendingActionAt !== null
+}));
+vi.mock('$lib/server/db/feedback', () => ({
+	FEEDBACK_DAILY_LIMIT: 5,
+	FEEDBACK_MAX_LENGTH: 1000,
+	createFeedback: mocks.createFeedback,
+	countFeedbackSince: mocks.countFeedbackSince
+}));
 vi.mock('$lib/server/db/queries', () => mocks);
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
@@ -32,7 +45,16 @@ vi.mock('$lib/server/parser', () => ({
 	// so one outcome comes back and the multi-entry rules are covered separately
 	// in tests/multi-entry.test.ts.
 	parseEntries: async (text: string, now?: Date) => [await mocks.parseMessage(text, now)],
-	matchCommand: (text: string) => (text === 'ไอดี' ? 'whoami' : text === 'สมาชิก' ? 'members' : null)
+	matchCommand: (text: string) =>
+		text === 'ไอดี'
+			? 'whoami'
+			: text === 'สมาชิก'
+				? 'members'
+				: text === 'ฟีดแบ็ก'
+					? 'feedback'
+					: text === 'มีอะไรใหม่'
+						? 'release'
+						: null
 }));
 vi.mock('../src/lib/server/line/client', () => ({
 	replyText: mocks.replyText,
@@ -43,7 +65,9 @@ vi.mock('../src/lib/server/line/client', () => ({
 import { handleEvents, type LineEvent } from '../src/lib/server/line/handler';
 
 const executor = {};
-const owner = { id: 42, lineUserId: 'owner', displayName: '' };
+const owner = { id: 42, lineUserId: 'owner', displayName: '', pendingAction: null, pendingActionAt: null };
+/** The same person, mid-way through sending feedback. */
+const awaitingFeedback = { ...owner, pendingAction: 'feedback', pendingActionAt: new Date(Date.parse('2026-09-01T16:58:00Z')) };
 const event: LineEvent = {
 	type: 'message', replyToken: 'reply', webhookEventId: 'event-1',
 	timestamp: Date.parse('2026-09-01T16:59:00Z'),
@@ -70,6 +94,10 @@ beforeEach(() => {
 	mocks.getUnpaidBillTotal.mockResolvedValue(0);
 	mocks.getMonthlyPlan.mockResolvedValue(null);
 	mocks.getPaymentMethodTotal.mockResolvedValue(0);
+	mocks.countFeedbackSince.mockResolvedValue(0);
+	mocks.claimPendingAction.mockResolvedValue(true);
+	mocks.processPendingSlip.mockResolvedValue(true);
+	mocks.createFeedback.mockImplementation(async (values) => ({ id: 5, createdAt: new Date(event.timestamp!), status: 'new', resolvedAt: null, ...values }));
 });
 
 describe('LINE processing', () => {
@@ -81,7 +109,7 @@ describe('LINE processing', () => {
 
 	it('greets an existing member who re-adds the bot without touching their ledger', async () => {
 		await handleEvents([{ type: 'follow', replyToken: 'reply', source: { type: 'user', userId: 'owner' } }]);
-		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('เริ่มง่าย ๆ'));
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ยินดีต้อนรับสู่ Nudget'));
 		expect(mocks.insertTransaction).not.toHaveBeenCalled();
 	});
 
@@ -201,7 +229,7 @@ describe('LINE processing', () => {
 	});
 
 	it('accepts an image and starts slip OCR after replying immediately', async () => {
-		mocks.replacePendingSlip.mockResolvedValue({ id: 7, lineUserId: 'owner', messageId: 'image-1', status: 'queued' });
+		mocks.replacePendingSlip.mockResolvedValue({ slip: { id: 7, lineUserId: 'owner', messageId: 'image-1', status: 'queued' }, replaced: null });
 		mocks.getMessageContent.mockReturnValue(new Promise(() => {}));
 		await handleEvents([{ ...event, message: { id: 'image-1', type: 'image' } }]);
 		expect(mocks.replacePendingSlip).toHaveBeenCalledWith(
@@ -221,5 +249,119 @@ describe('LINE processing', () => {
 		expect(mocks.parseMessage).toHaveBeenNthCalledWith(2, 'ค่าอาหาร 100.00', new Date(event.timestamp!));
 		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ paymentMethod: 'bank', parsedBy: 'ocr' }), executor);
 		expect(mocks.deletePendingSlip).toHaveBeenCalledWith(owner.id, executor);
+	});
+});
+
+describe('feedback in chat', () => {
+	const say = (text: string) => handleEvents([{ ...event, message: { id: 'm', type: 'text', text } }]);
+
+	it('asks for the message rather than storing the command itself', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'feedback' });
+		await say('ฟีดแบ็ก');
+		expect(mocks.setPendingAction).toHaveBeenCalledWith(owner.id, 'feedback', executor);
+		expect(mocks.createFeedback).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('อยากบอกอะไร'));
+	});
+
+	it('stores the next message and tells the owner, without recording an expense', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: awaitingFeedback });
+		await say('แอปช้ามาก จ่ายไป 500');
+		expect(mocks.createFeedback).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: owner.id, message: 'แอปช้ามาก จ่ายไป 500' }),
+			executor
+		);
+		expect(mocks.insertTransaction).not.toHaveBeenCalled();
+		expect(mocks.claimPendingAction).toHaveBeenCalledWith(owner.id, 'feedback', executor);
+		expect(mocks.pushText).toHaveBeenCalledWith('owner', expect.stringContaining('แอปช้ามาก'));
+	});
+
+	it('drops feedback mode when a slip arrives, so the answer about it is not filed as a complaint', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: awaitingFeedback });
+		mocks.replacePendingSlip.mockResolvedValue({
+			slip: { id: 9, lineUserId: 'owner', messageId: 'image-3', status: 'queued' },
+			replaced: null
+		});
+		await handleEvents([{ ...event, message: { id: 'image-3', type: 'image' } }]);
+		expect(mocks.setPendingAction).toHaveBeenCalledWith(owner.id, null, executor);
+	});
+
+	it('refuses to start feedback while a read slip is still waiting for an answer', async () => {
+		mocks.getPendingSlip.mockResolvedValue({ id: 3, status: 'ready', amount: '120.00', ocrText: 'สลิป' });
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'feedback' });
+		await say('ฟีดแบ็ก');
+		expect(mocks.setPendingAction).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('สลิปที่อ่านเสร็จรออยู่'));
+	});
+
+	it('stays silent when a concurrent delivery already answered', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: awaitingFeedback });
+		mocks.claimPendingAction.mockResolvedValue(false);
+		await say('ส่งซ้ำ');
+		expect(mocks.createFeedback).not.toHaveBeenCalled();
+		expect(mocks.replyText).not.toHaveBeenCalled();
+	});
+
+	it('lets someone back out without storing anything', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: awaitingFeedback });
+		await say('ยกเลิก');
+		expect(mocks.createFeedback).not.toHaveBeenCalled();
+		expect(mocks.claimPendingAction).toHaveBeenCalledWith(owner.id, 'feedback', executor);
+	});
+
+	it('refuses a sixth message in a day and still releases the mode', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: awaitingFeedback });
+		mocks.countFeedbackSince.mockResolvedValue(5);
+		await say('อีกเรื่องนึง');
+		expect(mocks.createFeedback).not.toHaveBeenCalled();
+		expect(mocks.claimPendingAction).toHaveBeenCalledWith(owner.id, 'feedback', executor);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ถี่ไป'));
+	});
+
+	it('attaches a remark to the entry that was just recorded', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: { command: 'note', text: 'ข้าวมันไก่ มื้อเที่ยง' } });
+		mocks.updateLatestTransactionNote.mockResolvedValue({
+			id: 1, kind: 'expense', amount: '60.00', categoryId: 'food', note: 'ข้าวมันไก่ มื้อเที่ยง'
+		});
+		await say('โน้ต ข้าวมันไก่ มื้อเที่ยง');
+		expect(mocks.updateLatestTransactionNote).toHaveBeenCalledWith(owner.id, 'ข้าวมันไก่ มื้อเที่ยง', executor);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ข้าวมันไก่ มื้อเที่ยง'));
+	});
+
+	it('says there is nothing to annotate when the ledger is empty', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: { command: 'note', text: 'ลืมใส่' } });
+		mocks.updateLatestTransactionNote.mockResolvedValue(null);
+		await say('โน้ต ลืมใส่');
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ยังไม่มีรายการ'));
+	});
+
+	it('shows what is new on request', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'release' });
+		await say('มีอะไรใหม่');
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('มีอะไรใหม่'));
+	});
+});
+
+describe('after a slip could not be read', () => {
+	it('records what the user types by hand as their own entry, not as OCR output', async () => {
+		mocks.getPendingSlip.mockResolvedValue({ id: 4, status: 'failed', amount: null, occurredAt: null, ocrText: '' });
+		await handleEvents([event]);
+		expect(mocks.deletePendingSlip).toHaveBeenCalledWith(owner.id, executor);
+		expect(mocks.insertTransaction).toHaveBeenCalledWith(
+			expect.objectContaining({ parsedBy: 'rule', rawText: 'ข้าว 60' }),
+			executor
+		);
+	});
+});
+
+describe('slips sent on top of each other', () => {
+	it('says the earlier slip was dropped so two later replies cannot be confused', async () => {
+		mocks.replacePendingSlip.mockResolvedValue({
+			slip: { id: 8, lineUserId: 'owner', messageId: 'image-2', status: 'queued' },
+			replaced: { id: 7, lineUserId: 'owner', messageId: 'image-1', status: 'processing' }
+		});
+		mocks.getMessageContent.mockReturnValue(new Promise(() => {}));
+		await handleEvents([{ ...event, message: { id: 'image-2', type: 'image' } }]);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('ยกเลิกสลิปใบก่อนหน้า'));
+		expect(mocks.processPendingSlip).toHaveBeenCalledWith(8);
 	});
 });

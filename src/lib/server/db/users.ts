@@ -1,7 +1,7 @@
-import { count, desc, eq, max } from 'drizzle-orm';
+import { and, count, desc, eq, max } from 'drizzle-orm';
 import { db } from './index';
 import { transactions, users } from './schema';
-import type { User } from './schema';
+import type { PendingAction, User } from './schema';
 import type { DbExecutor } from './queries';
 
 export async function getUserByLineId(lineUserId: string, executor: DbExecutor = db): Promise<User | null> {
@@ -87,3 +87,58 @@ export async function listMembers(): Promise<MemberSummary[]> {
 
 	return rows;
 }
+
+/**
+ * Puts the person into a one-shot conversational mode, so the next message they
+ * send is read as an answer rather than as an expense. Written to the row
+ * because a webhook holds no session and the process restarts on every deploy.
+ */
+export async function setPendingAction(
+	userId: number,
+	action: PendingAction | null,
+	executor: DbExecutor = db
+): Promise<void> {
+	await executor
+		.update(users)
+		.set({
+			pendingAction: action,
+			pendingActionAt: action ? new Date() : null,
+			updatedAt: new Date()
+		})
+		.where(eq(users.id, userId));
+}
+
+/**
+ * Ends the mode and reports whether this caller is the one that ended it.
+ *
+ * Two webhook deliveries for the same person can overlap, and a plain
+ * check-then-write would let both through: under READ COMMITTED they would each
+ * read the state before the other wrote. Postgres serialises concurrent updates
+ * of one row, so the loser sees zero rows and stops — and the winner holds that
+ * row's lock for the rest of its transaction, which is what makes the daily
+ * count that follows trustworthy too.
+ */
+export async function claimPendingAction(
+	userId: number,
+	action: PendingAction,
+	executor: DbExecutor = db
+): Promise<boolean> {
+	const rows = await executor
+		.update(users)
+		.set({ pendingAction: null, pendingActionAt: null, updatedAt: new Date() })
+		.where(and(eq(users.id, userId), eq(users.pendingAction, action)))
+		.returning({ id: users.id });
+	return rows.length > 0;
+}
+
+/**
+ * A mode nobody finished is worse than no mode at all: someone who typed
+ * "ฟีดแบ็ก" yesterday and an expense today must get the expense recorded.
+ */
+export function pendingActionIsLive(user: Pick<User, 'pendingAction' | 'pendingActionAt'>, now: Date): boolean {
+	if (!user.pendingAction || !user.pendingActionAt) return false;
+	return now.getTime() - user.pendingActionAt.getTime() < PENDING_ACTION_TTL_MS;
+}
+
+/** Ten minutes is long enough to type a paragraph and short enough to forget. */
+export const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;

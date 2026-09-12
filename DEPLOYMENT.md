@@ -148,6 +148,17 @@ CI ทำ restore drill กับ PostgreSQL ชั่วคราวทุก�
 2. ตั้ง LINE Webhook URL เป็น `https://<railway-domain>/api/line/webhook` แล้ว Verify
 3. เปลี่ยน `PUBLIC_BASE_URL` ใน local `.env` เป็น Railway domain แล้วรัน `bun run line:rich-menu --setup`
 4. ทดสอบข้อความ, รูปสลิป, dashboard และรายการเตือน
+5. หากปล่อยเวอร์ชันใหม่ที่มีรายการใน `src/lib/releases.ts` ให้รัน `bun run release:announce` (ดูหัวข้อ "ประกาศเวอร์ชันใหม่" ด้านล่าง)
+
+## ประกาศเวอร์ชันใหม่ (release:announce)
+
+หลัง deploy เวอร์ชันที่เพิ่ม entry ใหม่ใน `src/lib/releases.ts` แล้ว ให้รัน:
+
+```bash
+bun run release:announce
+```
+
+คำสั่งนี้ส่งข้อความ "มีอะไรใหม่" ให้ผู้ใช้ที่ active ทุกคนที่ยังไม่เคยได้รับเวอร์ชันล่าสุด ปลอดภัยที่จะรันซ้ำ — ตาราง `release_deliveries` กันไม่ให้ส่งซ้ำหาคนเดิม และถ้า push ล้มเหลวสำหรับบางคน คนอื่นยังได้รับตามปกติ ระบุเวอร์ชันอื่นได้ด้วย `bun run release:announce 0.2.0` หรือดูรายชื่อผู้รับก่อนโดยไม่ส่งจริงด้วย `bun run release:announce --dry-run`
 
 ## migration หลายผู้ใช้ (0003_multi_user)
 
