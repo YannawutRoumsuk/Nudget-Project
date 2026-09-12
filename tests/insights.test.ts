@@ -7,8 +7,10 @@ const state = vi.hoisted(() => ({
 	llm: { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash' },
 	ocr: { mode: 'inline', provider: 'auto', vision: { apiKey: '', model: 'gemini-2.5-flash' } }
 }));
+const recordLlmUsage = vi.hoisted(() => vi.fn());
 
 vi.mock('$lib/server/config', () => ({ config: state }));
+vi.mock('$lib/server/db/quota', () => ({ recordLlmUsage }));
 
 const fetchMock = vi.fn();
 
@@ -18,6 +20,9 @@ const input: InsightInput = {
 	income: 30000,
 	expense: 12000,
 	net: 18000,
+	savings: 18000,
+	savingsRate: 60,
+	creditCardSpent: 3200,
 	previousIncome: 30000,
 	previousExpense: 15000,
 	categories: [
@@ -25,6 +30,7 @@ const input: InsightInput = {
 		{ categoryId: 'transport', current: 2000, previous: 3500, delta: -1500 }
 	],
 	unpaidBills: 1800,
+	remainingBudget: null,
 	plan: null,
 	daysElapsed: 12,
 	daysInMonth: 30,
@@ -35,6 +41,7 @@ const input: InsightInput = {
 beforeEach(() => {
 	state.llm = { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash' };
 	fetchMock.mockReset();
+	recordLlmUsage.mockReset();
 	vi.stubGlobal('fetch', fetchMock);
 });
 
@@ -47,7 +54,8 @@ function modelReplies(payload: unknown): void {
 		ok: true,
 		status: 200,
 		json: async () => ({
-			candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }]
+			candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }],
+			usageMetadata: { promptTokenCount: 321, candidatesTokenCount: 87 }
 		}),
 		text: async () => ''
 	});
@@ -66,6 +74,22 @@ describe('generateInsight', () => {
 		const insight = await generateInsight(input);
 		expect(insight?.headline).toBe(usable.headline);
 		expect(insight?.savings[0].monthlySaving).toBe(800);
+	});
+
+	it('records token counters without storing prompt or response text', async () => {
+		modelReplies(usable);
+		await generateInsight(input, 7);
+		expect(recordLlmUsage).toHaveBeenCalledWith({
+			userId: 7,
+			workflow: 'insights',
+			provider: 'gemini',
+			model: 'gemini-2.5-flash',
+			inputTokens: 321,
+			outputTokens: 87,
+			success: true,
+			errorCode: null
+		});
+		expect(JSON.stringify(recordLlmUsage.mock.calls[0][0])).not.toContain(usable.headline);
 	});
 
 	it('drops a saving that claims more than the month actually cost', async () => {
@@ -119,6 +143,7 @@ describe('generateInsight', () => {
 		await generateInsight(input);
 		const body = String(fetchMock.mock.calls[0][1].body);
 		expect(body).toContain('12000');
+		expect(body).toContain('ยอดใช้บัตรเครดิต: 3200');
 		expect(body).not.toContain('lineUserId');
 		expect(body).not.toContain('rawText');
 	});

@@ -87,7 +87,7 @@ export const actions: Actions = {
 			});
 		}
 
-		const insight = await generateInsight(input);
+		const insight = await generateInsight(input, userId);
 		if (!insight) {
 			// Nothing was billed, so the claim goes back rather than costing
 			// someone one of the few analyses they get today.

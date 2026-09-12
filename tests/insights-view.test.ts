@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildComparison,
+	buildMonthlyFacts,
 	changeLabel,
 	classifyChange,
 	percentChange,
@@ -15,6 +16,47 @@ describe('percentChange', () => {
 	it('reports growth and shrinkage against a real baseline', () => {
 		expect(percentChange(120, 100)).toBeCloseTo(20);
 		expect(percentChange(80, 100)).toBeCloseTo(-20);
+	});
+});
+
+describe('buildMonthlyFacts', () => {
+	it('summarises savings, bills, card spending and remaining plan without an LLM', () => {
+		const facts = buildMonthlyFacts({
+			income: 30000,
+			expense: 18000,
+			net: 12000,
+			savings: 12000,
+			savingsRate: 40,
+			creditCardSpent: 4000,
+			unpaidBills: 1500,
+			remainingBudget: 2500,
+			previousExpense: 20000,
+			plan: { savingsGoal: 10000 }
+		});
+
+		expect(facts.highlights.join(' ')).toContain('ลดลง 2,000 บาท');
+		expect(facts.highlights.join(' ')).toContain('40%');
+		expect(facts.highlights.join(' ')).toContain('ถึงเป้าเงินเก็บ');
+		expect(facts.attention.join(' ')).toContain('บัตรเครดิต 4,000 บาท');
+		expect(facts.attention.join(' ')).toContain('บิลรอจ่าย 1,500 บาท');
+	});
+
+	it('flags overspending and works without a plan or income baseline', () => {
+		const facts = buildMonthlyFacts({
+			income: 0,
+			expense: 900,
+			net: -900,
+			savings: 0,
+			savingsRate: null,
+			creditCardSpent: 0,
+			unpaidBills: 0,
+			remainingBudget: null,
+			previousExpense: 0,
+			plan: null
+		});
+
+		expect(facts.status).toContain('สูงกว่ารายรับ');
+		expect(facts.attention.join(' ')).toContain('900 บาท');
 	});
 });
 

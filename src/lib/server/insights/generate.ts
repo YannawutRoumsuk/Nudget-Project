@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { categoryLabel } from '$lib/categories';
 import { config } from '$lib/server/config';
+import { recordLlmUsage } from '$lib/server/db/quota';
 import type { InsightInput } from './input';
 
 export interface SavingIdea {
@@ -64,7 +65,13 @@ const responseSchema = z.object({
 });
 
 const TIMEOUT_MS = 20_000;
-const MAX_TOKENS = 1200;
+const MAX_TOKENS = 600;
+
+interface ProviderResult {
+	text: string;
+	inputTokens: number;
+	outputTokens: number;
+}
 
 /**
  * Writes one month's review. Returns null — never throws — when the provider is
@@ -72,17 +79,48 @@ const MAX_TOKENS = 1200;
  * has the charts either way and commentary is the part that is allowed to be
  * missing.
  */
-export async function generateInsight(input: InsightInput): Promise<Insight | null> {
+export async function generateInsight(input: InsightInput, userId?: number): Promise<Insight | null> {
 	if (config.llm.provider === 'none') return null;
 
 	try {
 		const prompt = buildPrompt(input);
-		const raw =
+		const result =
 			config.llm.provider === 'anthropic' ? await callAnthropic(prompt) : await callGemini(prompt);
-		return raw === null ? null : toInsight(raw, input);
+		if (result === null) {
+			await saveUsage(userId, false, 0, 0, 'provider_error');
+			return null;
+		}
+		const insight = toInsight(result.text, input);
+		await saveUsage(userId, insight !== null, result.inputTokens, result.outputTokens, insight ? null : 'invalid_output');
+		return insight;
 	} catch (error) {
 		console.error('[insights] analysis failed:', error);
+		await saveUsage(userId, false, 0, 0, 'unexpected_error');
 		return null;
+	}
+}
+
+async function saveUsage(
+	userId: number | undefined,
+	success: boolean,
+	inputTokens: number,
+	outputTokens: number,
+	errorCode: string | null
+): Promise<void> {
+	if (userId === undefined) return;
+	try {
+		await recordLlmUsage({
+			userId,
+			workflow: 'insights',
+			provider: config.llm.provider,
+			model: config.llm.model,
+			inputTokens,
+			outputTokens,
+			success,
+			errorCode
+		});
+	} catch (error) {
+		console.error('[insights] could not store token metrics:', error);
 	}
 }
 
@@ -131,6 +169,9 @@ function buildFacts(input: InsightInput): string {
 		`รายรับ: ${input.income} บาท (เดือนก่อน ${input.previousIncome} บาท)`,
 		`รายจ่าย: ${input.expense} บาท (เดือนก่อน ${input.previousExpense} บาท)`,
 		`คงเหลือ: ${input.net} บาท`,
+		`อัตราออม: ${input.savingsRate === null ? 'คำนวณไม่ได้เพราะไม่มีรายรับ' : `${input.savingsRate}%`} (${input.savings} บาท)`,
+		`ยอดใช้บัตรเครดิต: ${input.creditCardSpent} บาท`,
+		`งบที่เหลือหลังกันเงินออมและบิล: ${input.remainingBudget === null ? 'ยังไม่ได้ตั้งแผน' : `${input.remainingBudget} บาท`}`,
 		`จำนวนรายการที่บันทึก: ${input.transactionCount}`,
 		`บิลที่ยังไม่จ่ายในเดือนนี้: ${input.unpaidBills} บาท`,
 		input.busiestDay
@@ -235,7 +276,7 @@ function extractJson(raw: string): unknown {
 // ------------------------------------------------------------- providers ---
 
 /** Returns the model's text, or null once the call is not worth waiting on. */
-async function callAnthropic(prompt: string): Promise<string | null> {
+async function callAnthropic(prompt: string): Promise<ProviderResult | null> {
 	const res = await request('https://api.anthropic.com/v1/messages', {
 		'content-type': 'application/json',
 		'x-api-key': config.llm.apiKey,
@@ -247,14 +288,21 @@ async function callAnthropic(prompt: string): Promise<string | null> {
 	}));
 	if (!res) return null;
 
-	const body = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-	return (body.content ?? [])
+	const body = (await res.json()) as {
+		content?: Array<{ type: string; text?: string }>;
+		usage?: { input_tokens?: number; output_tokens?: number };
+	};
+	return {
+		text: (body.content ?? [])
 		.filter((block) => block.type === 'text')
 		.map((block) => block.text ?? '')
-		.join('');
+		.join(''),
+		inputTokens: body.usage?.input_tokens ?? 0,
+		outputTokens: body.usage?.output_tokens ?? 0
+	};
 }
 
-async function callGemini(prompt: string): Promise<string | null> {
+async function callGemini(prompt: string): Promise<ProviderResult | null> {
 	const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.llm.model}:generateContent`;
 	const res = await request(url, {
 		'content-type': 'application/json',
@@ -267,8 +315,13 @@ async function callGemini(prompt: string): Promise<string | null> {
 
 	const body = (await res.json()) as {
 		candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+		usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
 	};
-	return (body.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('');
+	return {
+		text: (body.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join(''),
+		inputTokens: body.usageMetadata?.promptTokenCount ?? 0,
+		outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0
+	};
 }
 
 /**
