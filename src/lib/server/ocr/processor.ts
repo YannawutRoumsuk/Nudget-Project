@@ -29,7 +29,7 @@ export async function processClaimedSlip(pending: PendingSlip): Promise<void> {
 			ocrText: result.text,
 			expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
 		});
-		if (!updated || updated.messageId !== pending.messageId) return;
+		if (!stillOurs(updated, pending)) return;
 		await pushQuickReplies(
 			pending.lineUserId,
 			slipReviewText(updated),
@@ -38,7 +38,20 @@ export async function processClaimedSlip(pending: PendingSlip): Promise<void> {
 	} catch (error) {
 		console.error('[ocr] slip failed:', error);
 		const updated = await updatePendingSlip(pending.id, { status: 'failed' });
-		if (!updated || updated.messageId !== pending.messageId) return;
+		if (!stillOurs(updated, pending)) return;
 		await pushText(pending.lineUserId, 'อ่านสลิปนี้ไม่สำเร็จ ลองส่งรูปที่ชัดขึ้น หรือพิมพ์รายการตามปกติ เช่น “ค่าของ 350”');
 	}
+}
+
+/**
+ * A user who thinks the bot has hung sends a second slip, and that send
+ * deletes this row and inserts a new one (issue #43). Only the row we claimed
+ * may speak: a missing row, or a row under a different primary key, means this
+ * read was superseded, so it dies quietly instead of pushing a second result
+ * the user cannot match to either image.
+ */
+function stillOurs(updated: PendingSlip | null, pending: PendingSlip): updated is PendingSlip {
+	if (updated && updated.id === pending.id && updated.messageId === pending.messageId) return true;
+	console.info(`[ocr] slip ${pending.id} was superseded, dropping its result`);
+	return false;
 }

@@ -131,7 +131,7 @@ async function callAnthropic(prompt: string): Promise<string> {
 		signal: AbortSignal.timeout(TIMEOUT_MS)
 	});
 
-	if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
+	if (!res.ok) throw new Error(`Anthropic ${res.status}: ${briefly(await res.text())}`);
 	const body = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
 	return (body.content ?? [])
 		.filter((block) => block.type === 'text')
@@ -151,9 +151,18 @@ async function callGemini(prompt: string): Promise<string> {
 		signal: AbortSignal.timeout(TIMEOUT_MS)
 	});
 
-	if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
+	if (!res.ok) throw new Error(`Gemini ${res.status}: ${briefly(await res.text())}`);
 	const body = (await res.json()) as {
 		candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
 	};
 	return (body.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('');
+}
+
+/**
+ * Provider error bodies land in the application log, and they are written by
+ * someone else: a 401 can carry account identifiers, and a 500 can carry a
+ * stack. The status is what diagnoses the problem; the rest is trimmed.
+ */
+function briefly(body: string): string {
+	return body.replace(/s+/g, ' ').slice(0, 200);
 }

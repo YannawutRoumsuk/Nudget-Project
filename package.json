@@ -19,6 +19,7 @@
 		"cron:reminders": "bun run scripts/run-reminders.ts",
 		"line:rich-menu": "bun run scripts/rich-menu.ts",
 		"line:qr": "bun run scripts/line-qr.ts",
+		"release:announce": "bun run scripts/announce-release.ts",
 		"test:coverage": "vitest run --coverage",
 		"db:up": "docker compose up -d --wait --wait-timeout 60",
 		"db:down": "docker compose down",

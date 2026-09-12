@@ -2,7 +2,9 @@ import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import sharp from 'sharp';
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
+import { config } from '$lib/server/config';
 import { bangkokParts } from '$lib/utils/date';
+import { readSlipWithGemini } from './gemini';
 
 export interface SlipOcrResult {
 	amount: number | null;
@@ -78,8 +80,30 @@ export function parseSlipText(rawText: string): SlipOcrResult {
 	return { amount, occurredAt, recipient, reference, text };
 }
 
-export async function readSlip(image: ArrayBuffer): Promise<SlipOcrResult> {
-	const prepared = await sharp(Buffer.from(image))
+/**
+ * Reads a slip with whichever provider is configured. Gemini answers in about a
+ * second where Tesseract needs five to twenty, which is what made a user think
+ * the bot had hung and send a second slip (issue #43) — so it leads, and the
+ * local reader stays as the fallback for when it is unavailable.
+ */
+export async function readSlip(image: ArrayBuffer | Uint8Array): Promise<SlipOcrResult> {
+	const buffer = image instanceof Uint8Array ? Buffer.from(image) : Buffer.from(new Uint8Array(image));
+
+	if (config.ocr.provider !== 'tesseract') {
+		const viaGemini = await readSlipWithGemini(buffer);
+		if (viaGemini) return viaGemini;
+		// A forced provider must not quietly cost the user twenty seconds in the
+		// reader they opted out of; the caller turns this into a retry message.
+		if (config.ocr.provider === 'gemini') throw new Error('Gemini slip OCR failed and OCR_PROVIDER=gemini forbids the Tesseract fallback');
+		console.info('[ocr] Gemini unavailable, falling back to Tesseract');
+	}
+
+	return readSlipWithTesseract(buffer);
+}
+
+/** Local reader. Slow but offline, and the only path when no key is set. */
+export async function readSlipWithTesseract(image: Buffer): Promise<SlipOcrResult> {
+	const prepared = await sharp(image)
 		.rotate()
 		.resize({ width: 1800, withoutEnlargement: true })
 		.grayscale()

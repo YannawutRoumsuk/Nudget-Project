@@ -5,6 +5,7 @@ import { toNumber } from '$lib/utils/money';
 import { db } from './index';
 import { billPayments, bills, transactions } from './schema';
 import type { Bill, PaymentMethod } from './schema';
+import type { DbExecutor } from './queries';
 
 export interface BillView {
 	id: number;
@@ -44,8 +45,8 @@ export async function getBill(id: number, userId: number): Promise<Bill | null> 
 	return row ?? null;
 }
 
-export async function createBill(values: typeof bills.$inferInsert): Promise<Bill> {
-	const [row] = await db.insert(bills).values(values).returning();
+export async function createBill(values: typeof bills.$inferInsert, executor: DbExecutor = db): Promise<Bill> {
+	const [row] = await executor.insert(bills).values(values).returning();
 	return row;
 }
 

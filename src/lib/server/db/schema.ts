@@ -18,6 +18,9 @@ import {
 export type TxKind = 'expense' | 'income';
 export type PaymentMethod = 'bank' | 'cash' | 'credit_card' | 'wallet';
 export type BillRecurrence = 'monthly' | 'once';
+export type FeedbackStatus = 'new' | 'read' | 'done';
+/** A one-shot conversational mode that the next message answers. */
+export type PendingAction = 'feedback';
 
 /**
  * Categories are seeded rather than user-managed for now — the parser maps
@@ -48,6 +51,13 @@ export const users = pgTable('users', {
 	 * cascade away every baht the person ever recorded.
 	 */
 	active: boolean('active').notNull().default(true),
+	/**
+	 * What the bot is waiting for this person to type next, e.g. the body of a
+	 * feedback message. It lives here rather than in memory because a webhook is
+	 * stateless and the process restarts on every deploy.
+	 */
+	pendingAction: varchar('pending_action', { length: 16 }).$type<PendingAction>(),
+	pendingActionAt: timestamp('pending_action_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
@@ -172,6 +182,77 @@ export const processedEvents = pgTable('processed_events', {
 	processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow()
 });
 
+/**
+ * What a person told us in their own words. Kept even after the account is
+ * revoked: the point of feedback is to survive the conversation that produced it.
+ * `status` is the owner's queue, not the sender's — they never see it.
+ */
+export const feedback = pgTable(
+	'feedback',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		lineUserId: text('line_user_id').notNull(),
+		displayName: text('display_name').notNull().default(''),
+		message: text('message').notNull(),
+		status: varchar('status', { length: 8 }).notNull().$type<FeedbackStatus>().default('new'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		resolvedAt: timestamp('resolved_at', { withTimezone: true })
+	},
+	(t) => [index('feedback_status_created_idx').on(t.status, t.createdAt)]
+);
+
+/**
+ * One row per person per announced release. The primary key is what makes
+ * `release:announce` safe to re-run after a half-finished rollout.
+ */
+export const releaseDeliveries = pgTable(
+	'release_deliveries',
+	{
+		userId: ownerId(),
+		version: varchar('version', { length: 32 }).notNull(),
+		sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.version] })]
+);
+
+/**
+ * One LLM-written read of a month, kept so reopening the page costs nothing.
+ * `fingerprint` hashes the numbers the analysis was built from: a new entry
+ * changes it and earns a fresh read, while a reload does not.
+ */
+export const insights = pgTable(
+	'insights',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		month: varchar('month', { length: 7 }).notNull(),
+		fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+		/** The generated analysis as JSON. Re-validated on read, never trusted raw. */
+		payload: text('payload').notNull(),
+		model: varchar('model', { length: 64 }).notNull().default(''),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [uniqueIndex('insights_user_month_fingerprint_idx').on(t.userId, t.month, t.fingerprint)]
+);
+
+/**
+ * How many paid model calls one person has spent today. Its own table rather
+ * than a count over `insights`, because the guard has to be a single atomic
+ * statement: counting first and inserting afterwards lets two requests that
+ * overlap both read the same total and both pass.
+ */
+export const llmQuota = pgTable(
+	'llm_quota',
+	{
+		userId: ownerId(),
+		/** Bangkok calendar day, `YYYY-MM-DD`. */
+		day: varchar('day', { length: 10 }).notNull(),
+		used: integer('used').notNull().default(0)
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.day] })]
+);
+
 export type User = typeof users.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
@@ -179,3 +260,6 @@ export type NewTransaction = typeof transactions.$inferInsert;
 export type Bill = typeof bills.$inferSelect;
 export type MonthlyPlan = typeof monthlyPlans.$inferSelect;
 export type PendingSlip = typeof pendingSlips.$inferSelect;
+export type Feedback = typeof feedback.$inferSelect;
+export type ReleaseDelivery = typeof releaseDeliveries.$inferSelect;
+export type StoredInsight = typeof insights.$inferSelect;

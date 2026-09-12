@@ -7,7 +7,7 @@ import {
 import type { CategoryDef } from '$lib/categories';
 import type { PaymentMethod, TxKind } from '$lib/server/db/schema';
 import { addDays, bangkokParts, fromBangkok } from '$lib/utils/date';
-import type { BotCommand, ParsedTransaction } from './types';
+import type { BotCommand, HelpTopic, ParsedTransaction } from './types';
 import { validAmount, validCalendarDate } from './validation';
 
 /** Thai digits are normalised away so every downstream regex sees 0-9 only. */
@@ -22,13 +22,27 @@ export function normalize(text: string): string {
 
 // ---------------------------------------------------------------- commands --
 
-const COMMANDS: Record<string, BotCommand> = {
+/** Sub-topic word after "ช่วย <หัวข้อ>" → the help page it opens. */
+const HELP_TOPIC_WORDS: Record<string, HelpTopic> = {
+	บันทึก: 'record',
+	สลิป: 'slip',
+	เว็บ: 'web',
+	บิล: 'bills',
+	คำสั่ง: 'commands'
+};
+
+/** Unchanged from before this feature: every simple command stays a bare string. */
+const SIMPLE_COMMANDS: Record<string, BotCommand> = {
 	help: 'help',
 	'?': 'help',
 	ช่วย: 'help',
 	ช่วยด้วย: 'help',
+	ช่วยเหลือ: 'help',
 	วิธีใช้: 'help',
+	ใช้ยังไง: 'help',
+	ทำไง: 'help',
 	เมนู: 'help',
+	คำสั่ง: 'help',
 	today: 'today',
 	วันนี้: 'today',
 	สรุปวันนี้: 'today',
@@ -39,10 +53,10 @@ const COMMANDS: Record<string, BotCommand> = {
 	สรุป: 'summary',
 	ยอด: 'summary',
 	บิล: 'bills',
-	'บิลเดือนนี้': 'bills',
+	บิลเดือนนี้: 'bills',
 	bills: 'bills',
 	งบ: 'budget',
-	'งบเดือนนี้': 'budget',
+	งบเดือนนี้: 'budget',
 	budget: 'budget',
 	undo: 'undo',
 	ลบ: 'undo',
@@ -54,17 +68,40 @@ const COMMANDS: Record<string, BotCommand> = {
 	web: 'web',
 	link: 'web',
 	dashboard: 'web',
-	'เว็บ': 'web',
-	'ลิงก์': 'web',
-	'ลิ้ง': 'web',
-	'แดชบอร์ด': 'web',
+	เว็บ: 'web',
+	ลิงก์: 'web',
+	ลิ้ง: 'web',
+	แดชบอร์ด: 'web',
 	members: 'members',
-	'สมาชิก': 'members',
-	'ใครใช้บ้าง': 'members'
+	สมาชิก: 'members',
+	ใครใช้บ้าง: 'members',
+	ฟีดแบ็ก: 'feedback',
+	ฟีดแบค: 'feedback',
+	แจ้งปัญหา: 'feedback',
+	ติดต่อ: 'feedback',
+	มีอะไรใหม่: 'release',
+	อัปเดต: 'release',
+	whatsnew: 'release'
 };
 
+/** "โน้ต ..." / "หมายเหตุ ..." carries free text, so it is matched before anything else. */
+const NOTE_RE = /^(?:โน้ต|หมายเหตุ)\s+([\s\S]+)$/;
+/** "ช่วย <หัวข้อ>" — a topic word after "ช่วย". Bare "ช่วย" falls through to SIMPLE_COMMANDS. */
+const HELP_TOPIC_RE = /^ช่วย\s+(.+)$/;
+
 export function matchCommand(text: string): BotCommand | null {
-	return COMMANDS[normalize(text).toLowerCase()] ?? null;
+	const normalized = normalize(text);
+	if (!normalized) return null;
+
+	// Checked first: the payload must keep its original casing, so it cannot go
+	// through the lowercased simple-command lookup below.
+	const note = normalized.match(NOTE_RE);
+	if (note) return { command: 'note', text: note[1].trim() };
+
+	const topic = normalized.match(HELP_TOPIC_RE);
+	if (topic) return { command: 'help', topic: HELP_TOPIC_WORDS[topic[1].trim()] ?? 'overview' };
+
+	return SIMPLE_COMMANDS[normalized.toLowerCase()] ?? null;
 }
 
 // -------------------------------------------------------------------- date --
@@ -223,13 +260,15 @@ const INDEX_ALL = buildIndex(ALL_CATEGORIES);
 const INDEX_EXPENSE = buildIndex(EXPENSE_CATEGORIES);
 const INDEX_INCOME = buildIndex(INCOME_CATEGORIES);
 
-export function matchCategory(text: string, kind: TxKind | null): CategoryDef | null {
+/** Longest keyword that occurs in `text`, scoped to one kind's category list. */
+function findKeywordMatch(text: string, kind: TxKind | null): KeywordEntry | null {
 	const haystack = text.toLowerCase();
 	const index = kind === 'income' ? INDEX_INCOME : kind === 'expense' ? INDEX_EXPENSE : INDEX_ALL;
-	for (const { keyword, category } of index) {
-		if (haystack.includes(keyword)) return category;
-	}
-	return null;
+	return index.find((entry) => haystack.includes(entry.keyword)) ?? null;
+}
+
+export function matchCategory(text: string, kind: TxKind | null): CategoryDef | null {
+	return findKeywordMatch(text, kind)?.category ?? null;
 }
 
 // ------------------------------------------------------------------- parse --
@@ -259,7 +298,7 @@ export function parseByRules(rawText: string, now: Date): RuleParse | null {
 			kind,
 			amount: amount.amount,
 			categoryId: category?.id ?? FALLBACK_CATEGORY[kind],
-			note: cleanNote(amount.rest),
+			note: cleanNote(amount.rest, kind),
 			occurredAt: dated.occurredAt,
 			parsedBy: 'rule',
 			paymentMethod: payment.paymentMethod
@@ -268,12 +307,48 @@ export function parseByRules(rawText: string, now: Date): RuleParse | null {
 	};
 }
 
-function cleanNote(text: string): string {
+const NOTE_MAX_LENGTH = 120;
+
+/**
+ * Keeps the descriptive part of a message as the note, rather than letting it
+ * collapse to the bare category keyword. "ค่าอาหาร ข้าวมันไก่ กับเพื่อน" drops
+ * the "ค่าอาหาร" token (it only restates the category) and keeps the rest —
+ * but a message that is *only* the keyword ("ข้าวเที่ยง", "กาแฟ") has nothing
+ * else to keep, so the keyword itself stays as the note.
+ */
+export function cleanNote(text: string, kind: TxKind | null = null): string {
+	const trimmed = collapse(text);
+	if (!trimmed) return trimmed;
+
+	const match = findKeywordMatch(trimmed, kind);
+	let note = trimmed;
+	if (match) {
+		const tokens = trimmed.split(' ');
+		const index = tokens.findIndex((token) => token.toLowerCase().includes(match.keyword));
+		if (index !== -1) {
+			const withoutKeyword = collapse([...tokens.slice(0, index), ...tokens.slice(index + 1)].join(' '));
+			// Only drop the keyword token when something descriptive remains —
+			// otherwise the note would vanish for a message that was just the item name.
+			if (withoutKeyword) note = withoutKeyword;
+		}
+	}
+	return capNote(note);
+}
+
+function collapse(text: string): string {
 	return text
 		.replace(/^[\s,.:;+-]+/u, '')
 		.replace(/[\s,.:;+-]+$/u, '')
 		.replace(/\s+/g, ' ')
 		.trim();
+}
+
+/** Caps a note at NOTE_MAX_LENGTH, trimmed on a word boundary so it never cuts mid-word. */
+function capNote(text: string): string {
+	if (text.length <= NOTE_MAX_LENGTH) return text;
+	const cut = text.slice(0, NOTE_MAX_LENGTH);
+	const lastSpace = cut.lastIndexOf(' ');
+	return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
 }
 
 function strip(text: string, match: RegExpMatchArray): string {

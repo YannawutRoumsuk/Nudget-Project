@@ -3,28 +3,70 @@ import { EXPENSE_CATEGORIES } from '$lib/categories';
 import { billCopyDefaults, validateBillSchedule } from '$lib/bills';
 import { requireUserId } from '$lib/server/auth';
 import { createBill, getBill, listBills, markBillPaid, unmarkBillPaid, updateBill } from '$lib/server/db/bills';
-import { fromBangkok } from '$lib/utils/date';
+import { bangkokParts, fromBangkok } from '$lib/utils/date';
 import type { BillRecurrence, PaymentMethod } from '$lib/server/db/schema';
 import type { Actions, PageServerLoad } from './$types';
 
 const METHODS: PaymentMethod[] = ['bank', 'cash', 'credit_card', 'wallet'];
 
+/**
+ * `Date.UTC` rolls an impossible day forward instead of refusing it, so
+ * 31 February quietly becomes 3 March. The date picker in the browser never
+ * offers one, but a raw POST does, and a bill that falls due on a day nobody
+ * chose is worse than a rejected form. Reading the date back is the check.
+ */
+function toDueDate(raw: string): Date | null {
+	const [year, month, day] = raw.split('-').map(Number);
+	if (!year || !month || !day) return null;
+	const date = fromBangkok(year, month, day, 9);
+	const parts = bangkokParts(date);
+	return parts.year === year && parts.month === month && parts.day === day ? date : null;
+}
+
+/**
+ * Names the one field that is wrong rather than restating the whole form. The
+ * form shows two inputs at a time now, so "กรอกให้ครบ" would leave someone
+ * hunting through a disclosure they never opened.
+ */
 function parseForm(form: FormData) {
 	const name = String(form.get('name') ?? '').trim();
 	const amount = Number(form.get('amount'));
-	const categoryId = String(form.get('categoryId'));
-	const paymentMethod = String(form.get('paymentMethod')) as PaymentMethod;
+	const categoryId = String(form.get('categoryId') ?? 'bills');
+	const paymentMethod = String(form.get('paymentMethod') ?? 'bank') as PaymentMethod;
 	const recurrence = String(form.get('recurrence')) as BillRecurrence;
 	const dueDay = form.get('dueDay') ? Number(form.get('dueDay')) : null;
-	const dueRaw = String(form.get('dueDate') ?? '');
-	const [year, month, day] = dueRaw.split('-').map(Number);
-	const dueDate = year && month && day ? fromBangkok(year, month, day, 9) : null;
+	const dueDate = toDueDate(String(form.get('dueDate') ?? ''));
 	const active = form.get('active') === 'on' || form.get('active') === 'true';
-	const valid = name && Number.isFinite(amount) && amount > 0 &&
-		EXPENSE_CATEGORIES.some((item) => item.id === categoryId) && METHODS.includes(paymentMethod) &&
-		['monthly', 'once'].includes(recurrence) && validateBillSchedule(recurrence, dueDay, dueDate);
-	return { valid: Boolean(valid), values: { name, amount: amount.toFixed(2), categoryId, paymentMethod, recurrence,
-		dueDay: recurrence === 'monthly' ? dueDay : null, dueDate: recurrence === 'once' ? dueDate : null, active } };
+
+	const error = !name
+		? 'ใส่ชื่อบิลด้วย'
+		: !Number.isFinite(amount) || amount <= 0
+			? 'ยอดต้องเป็นตัวเลขมากกว่า 0'
+			: !['monthly', 'once'].includes(recurrence)
+				? 'เลือกว่าจ่ายทุกเดือนหรือครั้งเดียว'
+				: !validateBillSchedule(recurrence, dueDay, dueDate)
+					? recurrence === 'monthly'
+						? 'เลือกวันครบกำหนดของทุกเดือน'
+						: 'เลือกวันครบกำหนด'
+					: !EXPENSE_CATEGORIES.some((item) => item.id === categoryId)
+						? 'หมวดไม่ถูกต้อง เปิด “ตัวเลือกเพิ่มเติม” แล้วเลือกใหม่'
+						: !METHODS.includes(paymentMethod)
+							? 'วิธีจ่ายไม่ถูกต้อง เปิด “ตัวเลือกเพิ่มเติม” แล้วเลือกใหม่'
+							: null;
+
+	return {
+		error,
+		values: {
+			name,
+			amount: Number.isFinite(amount) ? amount.toFixed(2) : '0',
+			categoryId,
+			paymentMethod,
+			recurrence,
+			dueDay: recurrence === 'monthly' ? dueDay : null,
+			dueDate: recurrence === 'once' ? dueDate : null,
+			active
+		}
+	};
 }
 
 export const load: PageServerLoad = async ({ url, locals }) => {
@@ -46,7 +88,7 @@ export const actions: Actions = {
 	create: async ({ request, locals }) => {
 		const userId = requireUserId(locals);
 		const parsed = parseForm(await request.formData());
-		if (!parsed.valid) return fail(400, { message: 'กรอกชื่อ ยอด และวันจ่ายให้ครบ' });
+		if (parsed.error) return fail(400, { message: parsed.error });
 		await createBill({ ...parsed.values, active: true, userId });
 		redirect(303, '/bills');
 	},
@@ -55,7 +97,8 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		const parsed = parseForm(form);
-		if (!Number.isInteger(id) || !parsed.valid) return fail(400, { message: 'ข้อมูลบิลไม่ถูกต้อง' });
+		if (!Number.isInteger(id)) return fail(400, { message: 'ไม่พบบิลนี้' });
+		if (parsed.error) return fail(400, { message: parsed.error });
 		if (!await updateBill(id, userId, parsed.values)) return fail(404, { message: 'ไม่พบบิลนี้' });
 		redirect(303, '/bills');
 	},

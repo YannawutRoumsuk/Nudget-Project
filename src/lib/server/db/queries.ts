@@ -101,6 +101,31 @@ export async function deleteLatestTransaction(userId: number, executor: DbExecut
 	return latest;
 }
 
+/**
+ * Attaches detail to what was already recorded. Scoped to the latest entry on
+ * purpose: in chat there is no way to point at an older one, and the row id is
+ * never shown, so "the one I just sent" is the only target a person can mean.
+ */
+export async function updateLatestTransactionNote(
+	userId: number,
+	note: string,
+	executor: DbExecutor = db
+): Promise<Transaction | null> {
+	const [latest] = await executor
+		.select()
+		.from(transactions)
+		.where(eq(transactions.userId, userId))
+		.orderBy(desc(transactions.createdAt), desc(transactions.id))
+		.limit(1);
+	if (!latest) return null;
+	const [updated] = await executor
+		.update(transactions)
+		.set({ note })
+		.where(and(eq(transactions.id, latest.id), eq(transactions.userId, userId)))
+		.returning();
+	return updated ?? null;
+}
+
 export async function getTotals(userId: number, range: Range, executor: DbExecutor = db): Promise<Totals> {
 	const rows = await executor
 		.select({

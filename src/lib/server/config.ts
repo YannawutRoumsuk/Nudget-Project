@@ -2,6 +2,9 @@ const env = process.env;
 
 export type LlmProvider = 'none' | 'anthropic' | 'gemini';
 
+/** `auto` reads with Gemini when it is configured and falls back to Tesseract. */
+export type OcrProvider = 'gemini' | 'tesseract' | 'auto';
+
 const DEFAULT_MODELS: Record<Exclude<LlmProvider, 'none'>, string> = {
 	anthropic: 'claude-haiku-4-5-20251001',
 	gemini: 'gemini-2.5-flash'
@@ -41,6 +44,24 @@ function resolveLlm() {
 	};
 }
 
+function resolveOcrProvider(): OcrProvider {
+	const declared = (env.OCR_PROVIDER ?? '').trim().toLowerCase();
+	return declared === 'gemini' || declared === 'tesseract' ? declared : 'auto';
+}
+
+/**
+ * Reading slips and categorising text are separate choices, so they read
+ * separate settings. Deriving the vision key from `resolveLlm()` would tie them
+ * together: someone running Claude for text and Gemini for slips resolves to
+ * `anthropic` there, and the slip reader would then be off with nothing said.
+ */
+function resolveOcrVision() {
+	return {
+		apiKey: (env.GEMINI_API_KEY ?? '').trim(),
+		model: (env.OCR_MODEL ?? '').trim() || 'gemini-2.5-flash'
+	};
+}
+
 function splitList(value: string | undefined): string[] {
 	return (value ?? '')
 		.split(',')
@@ -56,7 +77,9 @@ function boundedInteger(value: string | undefined, fallback: number, min: number
 
 export const config = {
 	ocr: {
-		mode: (env.OCR_MODE ?? 'inline').trim() === 'worker' ? 'worker' as const : 'inline' as const
+		mode: (env.OCR_MODE ?? 'inline').trim() === 'worker' ? 'worker' as const : 'inline' as const,
+		provider: resolveOcrProvider(),
+		vision: resolveOcrVision()
 	},
 	reminders: {
 		mode: (env.REMINDER_MODE ?? 'timer').trim() === 'cron' ? 'cron' as const : 'timer' as const,
