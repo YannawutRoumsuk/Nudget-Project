@@ -36,13 +36,37 @@ export async function requeueStalePendingSlips(staleBefore: Date): Promise<numbe
 	return rows.length;
 }
 
+export interface PendingSlipReplacement {
+	slip: PendingSlip;
+	/** The row this send superseded, or null when nothing was in flight. */
+	replaced: PendingSlip | null;
+}
+
+/**
+ * The slip this user is still waiting on, if any. OCR takes seconds, so the
+ * caller checks this before it silently throws away someone's earlier slip.
+ */
+export async function getInFlightSlip(userId: number, executor: DbExecutor = db): Promise<PendingSlip | null> {
+	const row = await getPendingSlip(userId, executor);
+	return row && (row.status === 'queued' || row.status === 'processing') ? row : null;
+}
+
+/**
+ * One slip per user, so a new one replaces whatever was there. The deleted row
+ * comes back with the delete rather than from a separate read: two images sent
+ * back to back would otherwise race, and the caller needs to know it cancelled
+ * something to say so instead of a plain "รับสลิปแล้ว".
+ */
 export async function replacePendingSlip(
 	values: Pick<typeof pendingSlips.$inferInsert, 'userId' | 'lineUserId' | 'messageId' | 'status'>,
 	executor: DbExecutor = db
-): Promise<PendingSlip> {
-	await executor.delete(pendingSlips).where(eq(pendingSlips.userId, values.userId));
-	const [row] = await executor.insert(pendingSlips).values(values).returning();
-	return row;
+): Promise<PendingSlipReplacement> {
+	const [replaced] = await executor
+		.delete(pendingSlips)
+		.where(eq(pendingSlips.userId, values.userId))
+		.returning();
+	const [slip] = await executor.insert(pendingSlips).values(values).returning();
+	return { slip, replaced: replaced ?? null };
 }
 
 export async function updatePendingSlip(
