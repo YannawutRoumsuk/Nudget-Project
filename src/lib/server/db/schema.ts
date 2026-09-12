@@ -165,6 +165,10 @@ export const pendingSlips = pgTable(
 		recipient: text('recipient').notNull().default(''),
 		reference: text('reference').notNull().default(''),
 		ocrText: text('ocr_text').notNull().default(''),
+		ocrProvider: varchar('ocr_provider', { length: 16 }).notNull().default('tesseract'),
+		amountConfidence: numeric('amount_confidence', { precision: 3, scale: 2 }),
+		dateConfidence: numeric('date_confidence', { precision: 3, scale: 2 }),
+		recipientConfidence: numeric('recipient_confidence', { precision: 3, scale: 2 }),
 		fingerprint: varchar('fingerprint', { length: 64 }),
 		expiresAt: timestamp('expires_at', { withTimezone: true })
 			.notNull()

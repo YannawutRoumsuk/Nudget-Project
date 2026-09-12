@@ -9,11 +9,16 @@ const state = vi.hoisted(() => ({
 	ocr: {
 		mode: 'inline',
 		provider: 'auto',
-		vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' }
-	}
+		vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' },
+		dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000
+	},
+	claim: vi.fn(), release: vi.fn(), record: vi.fn()
 }));
 
 vi.mock('$lib/server/config', () => ({ config: state }));
+vi.mock('$lib/server/db/quota', () => ({
+	claimLlmCall: state.claim, releaseLlmCall: state.release, recordLlmUsage: state.record
+}));
 
 /** A real JPEG, because `readSlipWithGemini` genuinely downscales before sending. */
 let image: Buffer;
@@ -30,8 +35,9 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
 	state.llm = { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash' };
-	state.ocr = { mode: 'inline', provider: 'auto', vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' } };
+	state.ocr = { mode: 'inline', provider: 'auto', vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
 	fetchMock.mockReset();
+	state.claim.mockResolvedValue(true);
 	vi.stubGlobal('fetch', fetchMock);
 });
 
@@ -43,7 +49,7 @@ function geminiReplies(payload: unknown): void {
 	fetchMock.mockResolvedValue({
 		ok: true,
 		status: 200,
-		json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }] }),
+		json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }], usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 80 } }),
 		text: async () => ''
 	} as unknown as Response);
 }
@@ -56,7 +62,8 @@ const SLIP = {
 	sender: 'นาย ก',
 	reference: 'PAY202609ABC123',
 	bank: 'กสิกรไทย',
-	text: 'โอนเงินสำเร็จ\nจำนวนเงิน 1,250.50 บาท'
+	text: 'โอนเงินสำเร็จ\nจำนวนเงิน 1,250.50 บาท',
+	confidence: { amount: 0.99, date: 0.95, recipient: 0.85 }
 };
 
 describe('readSlipWithGemini', () => {
@@ -70,6 +77,7 @@ describe('readSlipWithGemini', () => {
 		expect(result?.occurredAt?.toISOString()).toBe('2026-09-05T06:42:00.000Z');
 		expect(result?.recipient).toBe('ร้านข้าวแกง');
 		expect(result?.reference).toBe('PAY202609ABC123');
+		expect(result?.confidence.amount).toBe(0.99);
 		// The unmodelled fields ride along so a mis-read stays diagnosable.
 		expect(result?.text).toContain('จำนวนเงิน 1,250.50 บาท');
 		expect(result?.text).toContain('กสิกรไทย');
@@ -146,14 +154,14 @@ describe('readSlipWithGemini', () => {
 	});
 
 	it('never calls the API when no key is configured', async () => {
-		state.ocr = { mode: 'inline', provider: 'auto', vision: { apiKey: '', model: 'gemini-2.5-flash' } };
+		state.ocr = { mode: 'inline', provider: 'auto', vision: { apiKey: '', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
 
 		expect(await readSlipWithGemini(image)).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('stays out of the way when the reader is forced to Tesseract', async () => {
-		state.ocr = { mode: 'inline', provider: 'tesseract', vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' } };
+		state.ocr = { mode: 'inline', provider: 'tesseract', vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
 
 		expect(await readSlipWithGemini(image)).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -163,10 +171,26 @@ describe('readSlipWithGemini', () => {
 	// Claude for categorising messages must not switch slip reading off.
 	it('reads slips even when the text parser is pointed at another provider', async () => {
 		state.llm = { provider: 'anthropic', apiKey: 'claude-key', model: 'claude-haiku-4-5-20251001' };
-		geminiReplies({ amount: 120, date: '2026-09-05', time: '13:42', recipient: 'ร้านกาแฟ', sender: '', reference: 'REF9', bank: '', text: 'สลิป' });
+		geminiReplies({ amount: 120, date: '2026-09-05', time: '13:42', recipient: 'ร้านกาแฟ', sender: '', reference: 'REF9', bank: '', text: 'สลิป', confidence: { amount: 0.9, date: 0.9, recipient: 0.8 } });
 
 		expect(await readSlipWithGemini(image)).not.toBeNull();
 		expect(fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it('claims per-user OCR quota and stores token metrics without slip contents', async () => {
+		geminiReplies(SLIP);
+		expect(await readSlipWithGemini(image, 42)).not.toBeNull();
+		expect(state.claim).toHaveBeenCalledWith(42, 20, expect.any(Date), 'ocr');
+		expect(state.record).toHaveBeenCalledWith(expect.objectContaining({
+			userId: 42, workflow: 'ocr', inputTokens: 300, outputTokens: 80, success: true
+		}));
+		expect(JSON.stringify(state.record.mock.calls)).not.toContain('ร้านข้าวแกง');
+	});
+
+	it('falls back without sending an image after the OCR quota is exhausted', async () => {
+		state.claim.mockResolvedValue(false);
+		expect(await readSlipWithGemini(image, 42)).toBeNull();
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
 
@@ -190,5 +214,18 @@ describe('slip OCR text parsing', () => {
 
 	it('rejects an impossible calendar date', () => {
 		expect(parseSlipText('วันที่ 31/02/2569\nจำนวนเงิน 50.00 บาท').occurredAt).toBeNull();
+	});
+
+	it.each([
+		['6 ก.ย. 2569 08:15', '2026-09-06T01:15:00.000Z'],
+		['6 กันยายน 69', '2026-09-06T05:00:00.000Z']
+	])('reads Thai month dates such as %s', (printed, expected) => {
+		const result = parseSlipText(`${printed}\nจำนวนเงิน 50.00 บาท`);
+		expect(result.occurredAt?.toISOString()).toBe(expected);
+	});
+
+	it('reads a recipient printed on the line after its label', () => {
+		const result = parseSlipText('ผู้รับ\nร้านตัวอย่าง\nจำนวนเงิน 50.00 บาท');
+		expect(result.recipient).toBe('ร้านตัวอย่าง');
 	});
 });

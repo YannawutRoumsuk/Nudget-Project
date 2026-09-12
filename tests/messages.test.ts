@@ -9,6 +9,7 @@ import {
 	newFeedbackText,
 	noReleaseText,
 	releaseNotesText,
+	slipReviewText,
 	unknownText,
 	welcomeText,
 	joinedText
@@ -21,6 +22,18 @@ import type { Transaction } from '../src/lib/server/db/schema';
 const NOW = new Date('2026-09-01T07:30:00.000Z');
 
 const HELP_TOPICS: HelpTopic[] = ['overview', 'record', 'slip', 'web', 'bills', 'commands'];
+
+describe('slip review confidence', () => {
+	it('points out only fields below the confidence threshold', () => {
+		const text = slipReviewText({
+			id: 1, amount: 120, occurredAt: NOW, recipient: 'ร้านตัวอย่าง', categoryId: 'food', paymentMethod: 'bank',
+			amountConfidence: 0.98, dateConfidence: 0.55, recipientConfidence: 0.4
+		});
+		expect(text).toContain('วันที่อ่านได้ไม่ชัด');
+		expect(text).toContain('ผู้รับอ่านได้ไม่ชัด');
+		expect(text).not.toContain('ยอดเงินอ่านได้ไม่ชัด');
+	});
+});
 
 function fakeTx(overrides: Partial<Transaction> = {}): Transaction {
 	return {

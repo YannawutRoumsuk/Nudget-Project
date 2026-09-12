@@ -36,6 +36,10 @@ const pending = {
 	recipient: '',
 	reference: '',
 	ocrText: '',
+	ocrProvider: 'tesseract',
+	amountConfidence: null,
+	dateConfidence: null,
+	recipientConfidence: null,
 	fingerprint: null,
 	expiresAt: new Date('2099-01-01T00:00:00Z'),
 	createdAt: new Date(),
@@ -51,7 +55,9 @@ describe('OCR duplicate fingerprint', () => {
 			occurredAt: new Date('2026-09-12T06:42:00Z'),
 			recipient: 'ร้านกาแฟ',
 			reference: 'REF-123',
-			text: 'สลิป 120 บาท'
+			text: 'สลิป 120 บาท',
+			provider: 'gemini',
+			confidence: { amount: 0.99, date: 0.95, recipient: 0.8 }
 		});
 		mocks.updatePendingSlip.mockImplementation(async (_id, values) => ({ ...pending, ...values }));
 	});
@@ -60,6 +66,8 @@ describe('OCR duplicate fingerprint', () => {
 		await processClaimedSlip(pending);
 		expect(mocks.updatePendingSlip).toHaveBeenCalledWith(7, expect.objectContaining({
 			status: 'ready',
+			ocrProvider: 'gemini',
+			amountConfidence: '0.99',
 			fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/)
 		}));
 		expect(mocks.pushQuickReplies).toHaveBeenCalledWith(

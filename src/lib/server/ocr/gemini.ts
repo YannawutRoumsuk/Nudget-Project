@@ -1,11 +1,10 @@
 import sharp from 'sharp';
 import { z } from 'zod';
 import { config } from '$lib/server/config';
+import { claimLlmCall, recordLlmUsage, releaseLlmCall } from '$lib/server/db/quota';
 import { fromBangkok } from '$lib/utils/date';
 import { validAmount, validCalendarDate } from '../parser/validation';
 import type { SlipOcrResult } from './slip';
-
-const TIMEOUT_MS = 12_000;
 
 /**
  * Vision cost scales with pixel count, so the image is capped and re-encoded
@@ -28,7 +27,12 @@ const responseSchema = z.object({
 	sender: optionalText,
 	reference: optionalText,
 	bank: optionalText,
-	text: optionalText
+	text: optionalText,
+	confidence: z.object({
+		amount: z.number().min(0).max(1),
+		date: z.number().min(0).max(1),
+		recipient: z.number().min(0).max(1)
+	})
 });
 
 const PROMPT = [
@@ -43,6 +47,7 @@ const PROMPT = [
 	'- reference: the transaction/reference number, as printed. "" if absent.',
 	'- bank: the bank or wallet that issued the slip. "" if unclear.',
 	'- text: every readable line of the slip, newline separated, exactly as printed.',
+	'- confidence: numbers from 0 to 1 for amount, date, and recipient. Use 0 when absent or unreadable.',
 	'',
 	'Never guess a number you cannot read — use null. Never invent a recipient.'
 ].join('\n');
@@ -52,11 +57,14 @@ const PROMPT = [
  * provider is off, the call fails, or the answer fails validation, so the
  * caller can fall back to the local Tesseract reader.
  */
-export async function readSlipWithGemini(image: Buffer): Promise<SlipOcrResult | null> {
+export async function readSlipWithGemini(image: Buffer, userId?: number): Promise<SlipOcrResult | null> {
 	// Reads OCR's own settings, not the text parser's: someone can run Claude for
 	// categorising messages and Gemini for slips, and the two must not disable
 	// each other.
 	if (config.ocr.provider === 'tesseract' || !config.ocr.vision.apiKey) return null;
+	if (userId && config.ocr.dailyLimit === 0) return null;
+	const claimedAt = new Date();
+	if (userId && !(await claimLlmCall(userId, config.ocr.dailyLimit, claimedAt, 'ocr'))) return null;
 
 	try {
 		const body = JSON.stringify({
@@ -68,13 +76,62 @@ export async function readSlipWithGemini(image: Buffer): Promise<SlipOcrResult |
 					]
 				}
 			],
-			generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+			generationConfig: {
+				responseMimeType: 'application/json',
+				responseJsonSchema: SLIP_JSON_SCHEMA,
+				temperature: 0,
+				maxOutputTokens: config.ocr.maxOutputTokens
+			}
 		});
-		const raw = await callGemini(body);
-		return raw === null ? null : toSlipResult(raw);
+		const response = await callGemini(body);
+		if (response === null) {
+			if (userId) {
+				await releaseLlmCall(userId, claimedAt, 'ocr');
+				await storeUsage(userId, 0, 0, false, 'provider_error');
+			}
+			return null;
+		}
+		const result = toSlipResult(response.text);
+		if (userId) await storeUsage(userId, response.inputTokens, response.outputTokens, result !== null, result ? null : 'invalid_output');
+		return result;
 	} catch (error) {
-		console.error('[ocr] Gemini slip read failed:', error);
+		if (userId) {
+			await releaseLlmCall(userId, claimedAt, 'ocr');
+			await storeUsage(userId, 0, 0, false, 'processing_error');
+		}
+		console.error('[ocr] Gemini slip read failed:', error instanceof Error ? error.message : 'unknown');
 		return null;
+	}
+}
+
+const SLIP_JSON_SCHEMA = {
+	type: 'object',
+	required: ['amount', 'date', 'time', 'recipient', 'sender', 'reference', 'bank', 'text', 'confidence'],
+	properties: {
+		amount: { type: ['number', 'null'] },
+		date: { type: ['string', 'null'] },
+		time: { type: ['string', 'null'] },
+		recipient: { type: 'string' }, sender: { type: 'string' }, reference: { type: 'string' },
+		bank: { type: 'string' }, text: { type: 'string' },
+		confidence: {
+			type: 'object', required: ['amount', 'date', 'recipient'],
+			properties: {
+				amount: { type: 'number', minimum: 0, maximum: 1 },
+				date: { type: 'number', minimum: 0, maximum: 1 },
+				recipient: { type: 'number', minimum: 0, maximum: 1 }
+			}
+		}
+	}
+};
+
+async function storeUsage(userId: number, inputTokens: number, outputTokens: number, success: boolean, errorCode: string | null): Promise<void> {
+	try {
+		await recordLlmUsage({
+			userId, workflow: 'ocr', provider: 'gemini', model: config.ocr.vision.model,
+			inputTokens, outputTokens, success, errorCode
+		});
+	} catch (error) {
+		console.error('[ocr] could not store LLM usage:', error instanceof Error ? error.message : 'unknown');
 	}
 }
 
@@ -120,7 +177,9 @@ function toSlipResult(raw: string): SlipOcrResult | null {
 		occurredAt: toOccurredAt(parsed.data.date, parsed.data.time),
 		recipient: parsed.data.recipient.trim(),
 		reference: parsed.data.reference.trim(),
-		text
+		text,
+		provider: 'gemini',
+		confidence: parsed.data.confidence
 	};
 }
 
@@ -166,7 +225,7 @@ function extractJson(raw: string): unknown {
 }
 
 /** Returns the model's text, or null once the call is not worth waiting on. */
-async function callGemini(body: string): Promise<string | null> {
+async function callGemini(body: string): Promise<{ text: string; inputTokens: number; outputTokens: number } | null> {
 	const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.ocr.vision.model}:generateContent`;
 
 	// Exactly one retry: a dropped connection or a timeout is usually transient,
@@ -178,7 +237,7 @@ async function callGemini(body: string): Promise<string | null> {
 				method: 'POST',
 				headers: { 'content-type': 'application/json', 'x-goog-api-key': config.ocr.vision.apiKey },
 				body,
-				signal: AbortSignal.timeout(TIMEOUT_MS)
+				signal: AbortSignal.timeout(config.ocr.timeoutMs)
 			});
 		} catch (error) {
 			if (attempt === 1) {
@@ -195,8 +254,13 @@ async function callGemini(body: string): Promise<string | null> {
 		}
 		const payload = (await res.json()) as {
 			candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+			usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
 		};
-		return (payload.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('');
+		return {
+			text: (payload.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join(''),
+			inputTokens: payload.usageMetadata?.promptTokenCount ?? 0,
+			outputTokens: payload.usageMetadata?.candidatesTokenCount ?? 0
+		};
 	}
 	return null;
 }

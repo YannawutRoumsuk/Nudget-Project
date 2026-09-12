@@ -17,7 +17,7 @@ export async function processPendingSlip(id: number): Promise<boolean> {
 export async function processClaimedSlip(pending: PendingSlip): Promise<void> {
 	try {
 		const image = await getMessageContent(pending.messageId);
-		const result = await readSlip(image);
+		const result = await readSlip(image, pending.userId);
 		const categoryId = matchCategory(`${result.recipient}\n${result.text}`, 'expense')?.id ?? FALLBACK_CATEGORY.expense;
 		const updated = await updatePendingSlip(pending.id, {
 			status: 'ready',
@@ -29,6 +29,10 @@ export async function processClaimedSlip(pending: PendingSlip): Promise<void> {
 			recipient: result.recipient,
 			reference: result.reference,
 			ocrText: result.text,
+			ocrProvider: result.provider,
+			amountConfidence: result.confidence.amount.toFixed(2),
+			dateConfidence: result.confidence.date.toFixed(2),
+			recipientConfidence: result.confidence.recipient.toFixed(2),
 			fingerprint: slipFingerprint(result, image),
 			expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
 		});
