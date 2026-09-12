@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ALL_CATEGORIES, FALLBACK_CATEGORY, getCategory } from '$lib/categories';
 import { config } from '$lib/server/config';
+import { callOpenRouter } from '$lib/server/llm/openrouter';
 import { claimLlmCall, recordLlmUsage, releaseLlmCall } from '$lib/server/db/quota';
 import { bangkokDayKey, bangkokParts, fromBangkok } from '$lib/utils/date';
 import type { ParsedTransaction } from './types';
@@ -56,10 +57,13 @@ export async function parseByLlm(text: string, now: Date, userId?: number): Prom
 	if (!(await claimLlmCall(userId, config.llm.parserDailyLimit, now, 'parser'))) return null;
 
 	try {
+		const prompt = buildPrompt(text, now);
 		const response =
 			config.llm.provider === 'anthropic'
-				? await callAnthropic(buildPrompt(text, now))
-				: await callGemini(buildPrompt(text, now));
+				? await callAnthropic(prompt)
+				: config.llm.provider === 'openrouter'
+					? await callGateway(prompt)
+					: await callGemini(prompt);
 		const result = response.text ? toTransaction(response.text, now) : null;
 		await storeUsage({ userId, ...response.usage, success: result !== null, errorCode: result ? null : 'invalid_output' });
 		return result;
@@ -177,6 +181,20 @@ async function callAnthropic(prompt: string): Promise<ProviderResponse> {
 		.filter((block) => block.type === 'text')
 		.map((block) => block.text ?? '')
 		.join(''), usage: { inputTokens: body.usage?.input_tokens ?? 0, outputTokens: body.usage?.output_tokens ?? 0 } };
+}
+
+async function callGateway(prompt: string): Promise<ProviderResponse> {
+	const answer = await callOpenRouter({
+		apiKey: config.llm.apiKey,
+		model: config.llm.model,
+		prompt,
+		maxOutputTokens: config.llm.maxOutputTokens,
+		timeoutMs: config.llm.timeoutMs
+	});
+	return {
+		text: answer.text,
+		usage: { inputTokens: answer.inputTokens, outputTokens: answer.outputTokens }
+	};
 }
 
 async function callGemini(prompt: string): Promise<ProviderResponse> {

@@ -209,3 +209,40 @@ describe('insightSchema', () => {
 		expect(insightSchema.safeParse(usable).success).toBe(true);
 	});
 });
+
+describe('the analysis through OpenRouter', () => {
+	beforeEach(() => {
+		state.llm = { provider: 'openrouter', apiKey: 'sk-or-test', model: 'google/gemini-2.5-flash-lite' };
+	});
+
+	it('reaches the gateway and records its token counters', async () => {
+		fetchMock.mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				choices: [{ message: { content: JSON.stringify(usable) } }],
+				usage: { prompt_tokens: 1102, completion_tokens: 240 }
+			}),
+			text: async () => ''
+		});
+
+		const insight = await generateInsight(input, 7);
+
+		expect(fetchMock.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+		expect(insight?.headline).toBe(usable.headline);
+		expect(recordLlmUsage).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: 'openrouter', inputTokens: 1102, outputTokens: 240 })
+		);
+	});
+
+	it('falls back to no commentary when the gateway refuses', async () => {
+		fetchMock.mockResolvedValue({ ok: false, status: 402, text: async () => 'no credits' });
+		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		expect(await generateInsight(input, 7)).toBeNull();
+		expect(recordLlmUsage).toHaveBeenCalledWith(
+			expect.objectContaining({ success: false, errorCode: 'provider_error' })
+		);
+		log.mockRestore();
+	});
+});

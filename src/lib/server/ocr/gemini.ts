@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { z } from 'zod';
 import { config } from '$lib/server/config';
+import { callOpenRouter } from '$lib/server/llm/openrouter';
 import { claimLlmCall, recordLlmUsage, releaseLlmCall } from '$lib/server/db/quota';
 import { fromBangkok } from '$lib/utils/date';
 import { validAmount, validCalendarDate } from '../parser/validation';
@@ -61,29 +62,17 @@ export async function readSlipWithGemini(image: Buffer, userId?: number): Promis
 	// Reads OCR's own settings, not the text parser's: someone can run Claude for
 	// categorising messages and Gemini for slips, and the two must not disable
 	// each other.
-	if (config.ocr.provider === 'tesseract' || !config.ocr.vision.apiKey) return null;
+	if (config.ocr.provider === 'tesseract' || config.ocr.vision.transport === 'none') return null;
 	if (userId && config.ocr.dailyLimit === 0) return null;
 	const claimedAt = new Date();
 	if (userId && !(await claimLlmCall(userId, config.ocr.dailyLimit, claimedAt, 'ocr'))) return null;
 
 	try {
-		const body = JSON.stringify({
-			contents: [
-				{
-					parts: [
-						{ text: PROMPT },
-						{ inline_data: { mime_type: 'image/jpeg', data: await toBase64Jpeg(image) } }
-					]
-				}
-			],
-			generationConfig: {
-				responseMimeType: 'application/json',
-				responseJsonSchema: SLIP_JSON_SCHEMA,
-				temperature: 0,
-				maxOutputTokens: config.ocr.maxOutputTokens
-			}
-		});
-		const response = await callGemini(body);
+		// The same model either way; only the host and the request shape differ.
+		const response =
+			config.ocr.vision.transport === 'openrouter'
+				? await callGateway(await toBase64Jpeg(image))
+				: await callGemini(await googleBody(image));
 		if (response === null) {
 			if (userId) {
 				await releaseLlmCall(userId, claimedAt, 'ocr');
@@ -127,7 +116,10 @@ const SLIP_JSON_SCHEMA = {
 async function storeUsage(userId: number, inputTokens: number, outputTokens: number, success: boolean, errorCode: string | null): Promise<void> {
 	try {
 		await recordLlmUsage({
-			userId, workflow: 'ocr', provider: 'gemini', model: config.ocr.vision.model,
+			// The transport, not the model family: the same Gemini model costs
+			// different money through the gateway, so the bill only adds up if the
+			// metrics say which route was taken.
+			userId, workflow: 'ocr', provider: config.ocr.vision.transport, model: config.ocr.vision.model,
 			inputTokens, outputTokens, success, errorCode
 		});
 	} catch (error) {
@@ -178,7 +170,9 @@ function toSlipResult(raw: string): SlipOcrResult | null {
 		recipient: parsed.data.recipient.trim(),
 		reference: parsed.data.reference.trim(),
 		text,
-		provider: 'gemini',
+		// The transport, not the family: this is the field that answers "where did
+		// this slip go", and Gemini through the gateway is a second data hop.
+		provider: config.ocr.vision.transport === 'openrouter' ? 'openrouter' : 'gemini',
 		confidence: parsed.data.confidence
 	};
 }
@@ -224,8 +218,48 @@ function extractJson(raw: string): unknown {
 	}
 }
 
+function googleBody(image: Buffer): Promise<string> {
+	return toBase64Jpeg(image).then((data) =>
+		JSON.stringify({
+			contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: 'image/jpeg', data } }] }],
+			generationConfig: {
+				responseMimeType: 'application/json',
+				responseJsonSchema: SLIP_JSON_SCHEMA,
+				temperature: 0,
+				maxOutputTokens: config.ocr.maxOutputTokens
+			}
+		})
+	);
+}
+
+/**
+ * The gateway route. Returns null on refusal like its Google counterpart, so
+ * the caller's fallback to Tesseract does not need to know which host answered.
+ */
+async function callGateway(imageBase64: string): Promise<VisionAnswer | null> {
+	try {
+		return await callOpenRouter({
+			apiKey: config.ocr.vision.apiKey,
+			model: config.ocr.vision.model,
+			prompt: PROMPT,
+			imageBase64,
+			maxOutputTokens: config.ocr.maxOutputTokens,
+			timeoutMs: config.ocr.timeoutMs
+		});
+	} catch (error) {
+		console.error('[ocr] OpenRouter slip read failed:', error);
+		return null;
+	}
+}
+
+interface VisionAnswer {
+	text: string;
+	inputTokens: number;
+	outputTokens: number;
+}
+
 /** Returns the model's text, or null once the call is not worth waiting on. */
-async function callGemini(body: string): Promise<{ text: string; inputTokens: number; outputTokens: number } | null> {
+async function callGemini(body: string): Promise<VisionAnswer | null> {
 	const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.ocr.vision.model}:generateContent`;
 
 	// Exactly one retry: a dropped connection or a timeout is usually transient,

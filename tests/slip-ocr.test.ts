@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
 	ocr: {
 		mode: 'inline',
 		provider: 'auto',
-		vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' },
+		vision: { transport: 'google', apiKey: 'test-key', model: 'gemini-2.5-flash' },
 		dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000
 	},
 	claim: vi.fn(), release: vi.fn(), record: vi.fn()
@@ -35,7 +35,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
 	state.llm = { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash' };
-	state.ocr = { mode: 'inline', provider: 'auto', vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
+	state.ocr = { mode: 'inline', provider: 'auto', vision: { transport: 'google', apiKey: 'test-key', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
 	fetchMock.mockReset();
 	state.claim.mockResolvedValue(true);
 	vi.stubGlobal('fetch', fetchMock);
@@ -153,15 +153,15 @@ describe('readSlipWithGemini', () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
-	it('never calls the API when no key is configured', async () => {
-		state.ocr = { mode: 'inline', provider: 'auto', vision: { apiKey: '', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
+	it('never calls the API when no vision transport is configured', async () => {
+		state.ocr = { mode: 'inline', provider: 'auto', vision: { transport: 'none', apiKey: '', model: '' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
 
 		expect(await readSlipWithGemini(image)).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('stays out of the way when the reader is forced to Tesseract', async () => {
-		state.ocr = { mode: 'inline', provider: 'tesseract', vision: { apiKey: 'test-key', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
+		state.ocr = { mode: 'inline', provider: 'tesseract', vision: { transport: 'google', apiKey: 'test-key', model: 'gemini-2.5-flash' }, dailyLimit: 20, maxOutputTokens: 600, timeoutMs: 12_000 };
 
 		expect(await readSlipWithGemini(image)).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -227,5 +227,51 @@ describe('slip OCR text parsing', () => {
 	it('reads a recipient printed on the line after its label', () => {
 		const result = parseSlipText('ผู้รับ\nร้านตัวอย่าง\nจำนวนเงิน 50.00 บาท');
 		expect(result.recipient).toBe('ร้านตัวอย่าง');
+	});
+});
+
+describe('reading a slip through OpenRouter', () => {
+	beforeEach(() => {
+		state.ocr = {
+			mode: 'inline',
+			provider: 'auto',
+			vision: { transport: 'openrouter', apiKey: 'sk-or-test', model: 'google/gemini-2.5-flash' },
+			dailyLimit: 20,
+			maxOutputTokens: 600,
+			timeoutMs: 12_000
+		};
+	});
+
+	it('sends the downscaled image to the gateway as a data URI', async () => {
+		fetchMock.mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				choices: [{ message: { content: JSON.stringify({
+					amount: 120, date: '2026-09-05', time: '13:42', recipient: 'ร้านกาแฟ',
+					sender: '', reference: 'REF9', bank: '', text: 'สลิป',
+					confidence: { amount: 0.9, date: 0.8, recipient: 0.7 }
+				}) } }],
+				usage: { prompt_tokens: 1_050, completion_tokens: 180 }
+			}),
+			text: async () => ''
+		});
+
+		const result = await readSlipWithGemini(image);
+
+		expect(fetchMock.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+		const image_part = body.messages[0].content[1];
+		expect(image_part.type).toBe('image_url');
+		expect(image_part.image_url.url.startsWith('data:image/jpeg;base64,')).toBe(true);
+		expect(result?.amount).toBe(120);
+	});
+
+	it('falls back to Tesseract rather than throwing when the gateway refuses', async () => {
+		fetchMock.mockResolvedValue({ ok: false, status: 402, text: async () => 'no credits' });
+		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		expect(await readSlipWithGemini(image)).toBeNull();
+		log.mockRestore();
 	});
 });
