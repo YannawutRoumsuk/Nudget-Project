@@ -65,6 +65,34 @@ const responseSchema = z.object({
 	savings: z.array(z.unknown()).catch([])
 });
 
+/**
+ * The analysis had no schema on either route, which left the shape resting on
+ * the prompt alone. A model that answers with different field names produces a
+ * reply the tolerant zod parse turns into nothing usable, and the page then
+ * says it cannot analyse the month — indistinguishable from the model failing.
+ */
+const INSIGHT_JSON_SCHEMA = {
+	type: 'object',
+	required: ['headline', 'summary', 'observations', 'savings'],
+	properties: {
+		headline: { type: 'string' },
+		summary: { type: 'string' },
+		observations: { type: 'array', items: { type: 'string' } },
+		savings: {
+			type: 'array',
+			items: {
+				type: 'object',
+				required: ['title', 'detail', 'monthlySaving'],
+				properties: {
+					title: { type: 'string' },
+					detail: { type: 'string' },
+					monthlySaving: { type: 'number' }
+				}
+			}
+		}
+	}
+};
+
 const TIMEOUT_MS = 20_000;
 const MAX_TOKENS = 600;
 
@@ -318,7 +346,12 @@ async function callGemini(prompt: string): Promise<ProviderResult | null> {
 		'x-goog-api-key': config.llm.apiKey
 	}, JSON.stringify({
 		contents: [{ parts: [{ text: prompt }] }],
-		generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: MAX_TOKENS }
+		generationConfig: {
+			responseMimeType: 'application/json',
+			responseJsonSchema: INSIGHT_JSON_SCHEMA,
+			temperature: 0.3,
+			maxOutputTokens: MAX_TOKENS
+		}
 	}));
 	if (!res) return null;
 
@@ -349,7 +382,8 @@ async function callGateway(prompt: string): Promise<ProviderResult | null> {
 			model: config.llm.model,
 			prompt,
 			maxOutputTokens: MAX_TOKENS,
-			timeoutMs: TIMEOUT_MS
+			timeoutMs: TIMEOUT_MS,
+			jsonSchema: { name: 'monthly_review', schema: INSIGHT_JSON_SCHEMA }
 		});
 	} catch (error) {
 		console.error('[insights] OpenRouter refused:', error instanceof Error ? error.message : 'unknown');

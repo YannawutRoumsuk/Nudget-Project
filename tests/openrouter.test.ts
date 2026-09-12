@@ -113,3 +113,57 @@ describe('callOpenRouter', () => {
 		expect((await callOpenRouter(call)).text).toBe('');
 	});
 });
+
+describe('asking for an exact shape', () => {
+	const schema = {
+		type: 'object',
+		required: ['kind', 'amount'],
+		properties: {
+			kind: { type: 'string', enum: ['expense', 'income'] },
+			amount: { type: ['number', 'null'] },
+			nested: { type: 'object', properties: { note: { type: ['string', 'null'] } } }
+		}
+	};
+
+	it('sends the schema so the model cannot name its own fields', async () => {
+		answers('{"kind":"expense","amount":50}');
+		await callOpenRouter({ ...call, jsonSchema: { name: 'entry', schema } });
+
+		const format = sentBody().response_format as { type: string; json_schema: { name: string; strict: boolean } };
+		expect(format.type).toBe('json_schema');
+		expect(format.json_schema.name).toBe('entry');
+		expect(format.json_schema.strict).toBe(true);
+	});
+
+	// Google takes `type: ['number', 'null']`; this gateway wants `anyOf`. The
+	// conversion is what lets one schema serve both routes.
+	it('rewrites a nullable type into anyOf, at every depth', async () => {
+		answers('{"kind":"expense","amount":50}');
+		await callOpenRouter({ ...call, jsonSchema: { name: 'entry', schema } });
+
+		const sent = (sentBody().response_format as { json_schema: { schema: Record<string, never> } }).json_schema.schema;
+		const props = sent.properties as unknown as Record<string, Record<string, unknown>>;
+		expect(props.amount).toEqual({ anyOf: [{ type: 'number' }, { type: 'null' }] });
+		expect((props.nested.properties as Record<string, unknown>).note).toEqual({
+			anyOf: [{ type: 'string' }, { type: 'null' }]
+		});
+		// An enum that was never a union is left exactly as it was.
+		expect(props.kind).toEqual({ type: 'string', enum: ['expense', 'income'] });
+	});
+
+	it('closes every object so the model cannot add keys nobody asked for', async () => {
+		answers('{"kind":"expense","amount":50}');
+		await callOpenRouter({ ...call, jsonSchema: { name: 'entry', schema } });
+
+		const sent = (sentBody().response_format as { json_schema: { schema: Record<string, unknown> } }).json_schema.schema;
+		expect(sent.additionalProperties).toBe(false);
+		const nested = (sent.properties as Record<string, Record<string, unknown>>).nested;
+		expect(nested.additionalProperties).toBe(false);
+	});
+
+	it('still asks only for an object when the caller has no schema', async () => {
+		answers('{"ok":true}');
+		await callOpenRouter(call);
+		expect(sentBody().response_format).toEqual({ type: 'json_object' });
+	});
+});

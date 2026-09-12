@@ -246,3 +246,34 @@ describe('the analysis through OpenRouter', () => {
 		log.mockRestore();
 	});
 });
+
+describe('asking the model for the review shape', () => {
+	// The analysis had no schema on either route, so the shape rested on the
+	// prompt alone; a model that renamed a field produced an empty analysis that
+	// the page reported as "cannot analyse this month".
+	it('sends a schema to Google that names every field the page reads', async () => {
+		modelReplies(usable);
+		await generateInsight(input, 7);
+
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+		const schema = body.generationConfig.responseJsonSchema;
+		expect(schema.required).toEqual(['headline', 'summary', 'observations', 'savings']);
+		expect(schema.properties.savings.items.required).toEqual(['title', 'detail', 'monthlySaving']);
+	});
+
+	it('sends the same schema through the gateway', async () => {
+		state.llm = { provider: 'openrouter', apiKey: 'sk-or-test', model: 'google/gemini-2.5-flash-lite' };
+		fetchMock.mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({ choices: [{ message: { content: JSON.stringify(usable) } }], usage: {} }),
+			text: async () => ''
+		});
+
+		await generateInsight(input, 7);
+
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+		expect(body.response_format.json_schema.name).toBe('monthly_review');
+		expect(body.response_format.json_schema.schema.required).toContain('headline');
+	});
+});

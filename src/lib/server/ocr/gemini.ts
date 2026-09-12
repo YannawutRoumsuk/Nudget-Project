@@ -244,7 +244,8 @@ async function callGateway(imageBase64: string): Promise<VisionAnswer | null> {
 			prompt: PROMPT,
 			imageBase64,
 			maxOutputTokens: config.ocr.maxOutputTokens,
-			timeoutMs: config.ocr.timeoutMs
+			timeoutMs: config.ocr.timeoutMs,
+			jsonSchema: { name: 'bank_slip', schema: SLIP_JSON_SCHEMA }
 		});
 	} catch (error) {
 		console.error('[ocr] OpenRouter slip read failed:', error);
