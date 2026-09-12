@@ -21,7 +21,17 @@ export interface OpenRouterCall {
 	timeoutMs: number;
 	/** Base64 JPEG for a vision call; omitted for a text-only one. */
 	imageBase64?: string;
+	/**
+	 * The exact object the caller needs back, in the same JSON Schema the direct
+	 * Google path sends. Asking only for "some JSON object" is not enough: the
+	 * model then invents its own field names — `category`/`description` where the
+	 * code reads `kind`/`note` — and a reply that parses as JSON still fails
+	 * validation, which looks to a user like the feature being broken.
+	 */
+	jsonSchema?: { name: string; schema: JsonSchema };
 }
+
+type JsonSchema = Record<string, unknown>;
 
 export interface OpenRouterResult {
 	text: string;
@@ -51,10 +61,16 @@ export async function callOpenRouter(call: OpenRouterCall): Promise<OpenRouterRe
 		body: JSON.stringify({
 			model: call.model,
 			messages: [{ role: 'user', content: toContent(call) }],
-			// Asking for an object rather than a schema on purpose: schema dialects
-			// differ between the models this gateway fronts, and every caller here
-			// already re-reads the answer with zod and tolerates stray prose.
-			response_format: { type: 'json_object' },
+			response_format: call.jsonSchema
+				? {
+						type: 'json_schema',
+						json_schema: {
+							name: call.jsonSchema.name,
+							strict: true,
+							schema: toGatewayDialect(call.jsonSchema.schema)
+						}
+					}
+				: { type: 'json_object' },
 			temperature: 0,
 			// Bounds the bill even on a model that thinks before answering, because
 			// reasoning tokens are billed as output.
@@ -75,6 +91,30 @@ export async function callOpenRouter(call: OpenRouterCall): Promise<OpenRouterRe
 		inputTokens: body.usage?.prompt_tokens ?? 0,
 		outputTokens: body.usage?.completion_tokens ?? 0
 	};
+}
+
+/**
+ * Google accepts `type: ['string', 'null']` for a nullable field; the
+ * OpenAI-shaped schema this gateway expects wants `anyOf` instead. Converting
+ * here keeps one schema per caller as the single source of truth rather than
+ * two that drift apart, and object nodes get `additionalProperties: false` so a
+ * model cannot answer with extra keys the caller never asked for.
+ */
+function toGatewayDialect(node: unknown): unknown {
+	if (Array.isArray(node)) return node.map(toGatewayDialect);
+	if (node === null || typeof node !== 'object') return node;
+
+	const source = node as JsonSchema;
+	const out: JsonSchema = {};
+	for (const [key, value] of Object.entries(source)) {
+		if (key === 'type' && Array.isArray(value)) {
+			out.anyOf = value.map((type) => ({ type }));
+			continue;
+		}
+		out[key] = toGatewayDialect(value);
+	}
+	if (out.type === 'object' && out.additionalProperties === undefined) out.additionalProperties = false;
+	return out;
 }
 
 function toContent(call: OpenRouterCall): unknown {

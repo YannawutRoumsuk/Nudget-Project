@@ -128,3 +128,38 @@ describe('the parser through OpenRouter', () => {
 		log.mockRestore();
 	});
 });
+
+describe('the parser surviving its own bookkeeping', () => {
+	beforeEach(() => {
+		state.config.llm.provider = 'gemini';
+		state.config.llm.apiKey = 'test-key';
+		state.config.llm.model = 'gemini-2.5-flash-lite';
+	});
+
+	// The claim is a database write. When it throws it used to escape the parser
+	// and fail the whole webhook, so LINE retried a message the rules could
+	// already answer.
+	it('keeps the rule result when the quota table is unreachable', async () => {
+		state.claim.mockRejectedValue(new Error('pool timeout'));
+		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		const result = await parseMessage('atelier 250', NOW, { userId: 7 });
+
+		expect(result).toMatchObject({ type: 'transaction', tx: { categoryId: 'other' } });
+		expect(fetchMock).not.toHaveBeenCalled();
+		// Nothing was taken, so nothing is refunded.
+		expect(state.release).not.toHaveBeenCalled();
+		log.mockRestore();
+	});
+
+	it('asks Google for the exact entry shape, not just any JSON', async () => {
+		state.claim.mockResolvedValue(true);
+		answer({ isTransaction: true, kind: 'expense', amount: 250, category: 'other', note: 'atelier', date: null, paymentMethod: 'bank' });
+
+		await parseMessage('atelier 250', NOW, { userId: 7 });
+
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+		expect(body.generationConfig.responseJsonSchema.required).toContain('kind');
+		expect(body.generationConfig.responseJsonSchema.required).toContain('note');
+	});
+});

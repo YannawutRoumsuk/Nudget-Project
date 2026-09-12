@@ -18,6 +18,26 @@ const responseSchema = z.object({
 	date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null)
 });
 
+/**
+ * The shape both routes ask for. One definition on purpose: a model left to
+ * name its own fields answers with `category` and `description` where this code
+ * reads `kind` and `note`, and that reply parses as JSON and then fails zod —
+ * which reaches the user as "ไม่เข้าใจข้อความนี้" rather than as a bug.
+ */
+const ENTRY_JSON_SCHEMA = {
+	type: 'object',
+	required: ['isTransaction', 'kind', 'amount', 'category', 'note', 'date', 'paymentMethod'],
+	properties: {
+		isTransaction: { type: 'boolean' },
+		kind: { anyOf: [{ type: 'string', enum: ['expense', 'income'] }, { type: 'null' }] },
+		amount: { type: ['number', 'null'] },
+		category: { type: ['string', 'null'] },
+		note: { type: 'string' },
+		date: { type: ['string', 'null'] },
+		paymentMethod: { type: 'string', enum: ['bank', 'cash', 'credit_card', 'wallet'] }
+	}
+};
+
 const CATEGORY_LIST = ALL_CATEGORIES.map(
 	(c) => `- ${c.id} (${c.kind}): ${c.nameTh} / ${c.nameEn}`
 ).join('\n');
@@ -54,9 +74,16 @@ function buildPrompt(text: string, now: Date): string {
 export async function parseByLlm(text: string, now: Date, userId?: number): Promise<ParsedTransaction | null> {
 	if (config.llm.provider === 'none' || !userId || config.llm.parserDailyLimit === 0) return null;
 	if (text.length > config.llm.maxInputChars) return null;
-	if (!(await claimLlmCall(userId, config.llm.parserDailyLimit, now, 'parser'))) return null;
 
+	// Inside the try, not before it: the claim is a database write, and a pool
+	// timeout there used to throw all the way out of the parser and fail the
+	// whole webhook — LINE would then retry a message the rules could have
+	// answered on their own.
+	let claimed = false;
 	try {
+		claimed = await claimLlmCall(userId, config.llm.parserDailyLimit, now, 'parser');
+		if (!claimed) return null;
+
 		const prompt = buildPrompt(text, now);
 		const response =
 			config.llm.provider === 'anthropic'
@@ -68,8 +95,12 @@ export async function parseByLlm(text: string, now: Date, userId?: number): Prom
 		await storeUsage({ userId, ...response.usage, success: result !== null, errorCode: result ? null : 'invalid_output' });
 		return result;
 	} catch (error) {
-		await releaseLlmCall(userId, now, 'parser');
-		await storeUsage({ userId, inputTokens: 0, outputTokens: 0, success: false, errorCode: errorCode(error) });
+		// Only refund what was actually taken; a claim that never succeeded has
+		// nothing to give back, and releasing anyway would hand out free calls.
+		if (claimed) {
+			await sink(releaseLlmCall(userId, now, 'parser'));
+			await storeUsage({ userId, inputTokens: 0, outputTokens: 0, success: false, errorCode: errorCode(error) });
+		}
 		console.error('[parser] LLM fallback failed:', error instanceof Error ? error.message : 'unknown');
 		return null;
 	}
@@ -95,6 +126,19 @@ async function storeUsage(values: { userId: number; inputTokens: number; outputT
 		});
 	} catch (error) {
 		console.error('[parser] could not store LLM usage:', error instanceof Error ? error.message : 'unknown');
+	}
+}
+
+/**
+ * Bookkeeping in a failure path must not raise a second failure on top of the
+ * first: the caller is already returning null and the rules still have an
+ * answer, so a refund that cannot be written is logged and dropped.
+ */
+async function sink(work: Promise<unknown>): Promise<void> {
+	try {
+		await work;
+	} catch (error) {
+		console.error('[parser] quota refund failed:', error instanceof Error ? error.message : 'unknown');
 	}
 }
 
@@ -189,7 +233,8 @@ async function callGateway(prompt: string): Promise<ProviderResponse> {
 		model: config.llm.model,
 		prompt,
 		maxOutputTokens: config.llm.maxOutputTokens,
-		timeoutMs: config.llm.timeoutMs
+		timeoutMs: config.llm.timeoutMs,
+		jsonSchema: { name: 'finance_entry', schema: ENTRY_JSON_SCHEMA }
 	});
 	return {
 		text: answer.text,
@@ -206,19 +251,7 @@ async function callGemini(prompt: string): Promise<ProviderResponse> {
 			contents: [{ parts: [{ text: prompt }] }],
 			generationConfig: {
 				responseMimeType: 'application/json',
-				responseJsonSchema: {
-					type: 'object',
-					required: ['isTransaction', 'kind', 'amount', 'category', 'note', 'date', 'paymentMethod'],
-					properties: {
-						isTransaction: { type: 'boolean' },
-						kind: { anyOf: [{ type: 'string', enum: ['expense', 'income'] }, { type: 'null' }] },
-						amount: { type: ['number', 'null'] },
-						category: { type: ['string', 'null'] },
-						note: { type: 'string' },
-						date: { type: ['string', 'null'] },
-						paymentMethod: { type: 'string', enum: ['bank', 'cash', 'credit_card', 'wallet'] }
-					}
-				},
+				responseJsonSchema: ENTRY_JSON_SCHEMA,
 				temperature: 0,
 				maxOutputTokens: config.llm.maxOutputTokens
 			}
