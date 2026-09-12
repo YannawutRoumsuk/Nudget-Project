@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { resolveMonthSelection } from '$lib/month';
 import { getUnpaidBillTotal } from '$lib/server/db/bills';
 import { getMonthlyPlan } from '$lib/server/db/plans';
-import { getByCategory, getDailySeries, getTotals } from '$lib/server/db/queries';
+import { getByCategory, getDailySeries, getPaymentMethodTotal, getTotals } from '$lib/server/db/queries';
 import type { Range } from '$lib/server/db/queries';
 import { addMonths } from '$lib/utils/date';
 import { toNumber } from '$lib/utils/money';
@@ -21,6 +21,12 @@ export interface InsightInput {
 	income: number;
 	expense: number;
 	net: number;
+	/** Positive cash left from recorded income after recorded expenses. */
+	savings: number;
+	/** Percentage of recorded income left; null when there is no income baseline. */
+	savingsRate: number | null;
+	/** Expenses recorded against a credit card in this month. */
+	creditCardSpent: number;
 	previousIncome: number;
 	previousExpense: number;
 	/** Expense categories, this month vs last, biggest current first. */
@@ -33,6 +39,8 @@ export interface InsightInput {
 		commuteDailyBudget: number;
 		commuteDays: number;
 	} | null;
+	/** Spendable amount left after the savings goal, spending and unpaid bills. */
+	remainingBudget: number | null;
 	daysElapsed: number;
 	daysInMonth: number;
 	transactionCount: number;
@@ -59,34 +67,47 @@ export async function buildInsightInput(
 	// Both months go out at once: the comparison is the whole point of the
 	// analysis, so waiting for this month before asking for the last one would
 	// double the latency for no gain.
-	const [totals, slices, series, unpaidBills, plan, previousTotals, previousSlices] = await Promise.all([
+	const [totals, slices, series, unpaidBills, plan, creditCardSpent, previousTotals, previousSlices] = await Promise.all([
 		getTotals(userId, range),
 		getByCategory(userId, range, 'expense'),
 		getDailySeries(userId, range),
 		getUnpaidBillTotal(userId, selection.from),
 		getMonthlyPlan(userId, selection.key),
+		getPaymentMethodTotal(userId, range, 'credit_card'),
 		getTotals(userId, previousRange),
 		getByCategory(userId, previousRange, 'expense')
 	]);
 
+	const income = baht(totals.income);
+	const expense = baht(totals.expense);
+	const net = baht(totals.net);
+	const savings = Math.max(0, net);
+	const normalizedPlan = plan
+		? {
+				expectedIncome: toNumber(plan.expectedIncome),
+				savingsGoal: toNumber(plan.savingsGoal),
+				foodDailyBudget: toNumber(plan.foodDailyBudget),
+				commuteDailyBudget: toNumber(plan.commuteDailyBudget),
+				commuteDays: plan.commuteDays
+			}
+		: null;
+
 	return {
 		month: selection.key,
 		monthLabel: selection.label,
-		income: baht(totals.income),
-		expense: baht(totals.expense),
-		net: baht(totals.net),
+		income,
+		expense,
+		net,
+		savings,
+		savingsRate: income > 0 ? baht((savings / income) * 100) : null,
+		creditCardSpent: baht(creditCardSpent),
 		previousIncome: baht(previousTotals.income),
 		previousExpense: baht(previousTotals.expense),
 		categories: toCategoryChanges(slices, previousSlices),
 		unpaidBills: baht(unpaidBills),
-		plan: plan
-			? {
-					expectedIncome: toNumber(plan.expectedIncome),
-					savingsGoal: toNumber(plan.savingsGoal),
-					foodDailyBudget: toNumber(plan.foodDailyBudget),
-					commuteDailyBudget: toNumber(plan.commuteDailyBudget),
-					commuteDays: plan.commuteDays
-				}
+		plan: normalizedPlan,
+		remainingBudget: normalizedPlan
+			? baht(normalizedPlan.expectedIncome - normalizedPlan.savingsGoal - expense - unpaidBills)
 			: null,
 		// A finished month is fully elapsed; averaging it over "today" would make
 		// every past month look like it was only half spent.
@@ -113,9 +134,13 @@ export function fingerprintInput(input: InsightInput): string {
 		input.income,
 		input.expense,
 		input.net,
+		input.savings,
+		input.savingsRate ?? '-',
+		input.creditCardSpent,
 		input.previousIncome,
 		input.previousExpense,
 		input.unpaidBills,
+		input.remainingBudget ?? '-',
 		input.daysElapsed,
 		input.daysInMonth,
 		input.transactionCount,

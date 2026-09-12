@@ -1,4 +1,5 @@
 import { getCategory } from '$lib/categories';
+import { formatNumber } from '$lib/utils/money';
 
 /**
  * Presentation helpers for the month-over-month comparison. Pure on purpose:
@@ -99,4 +100,68 @@ export function buildComparison(sources: ComparisonSource[]): ComparisonRow[] {
 /** What the savings ideas add up to, for the line under the list. */
 export function totalSavings(savings: { monthlySaving: number }[]): number {
 	return savings.reduce((sum, idea) => sum + idea.monthlySaving, 0);
+}
+
+export interface MonthlyFactsInput {
+	income: number;
+	expense: number;
+	net: number;
+	savings: number;
+	savingsRate: number | null;
+	creditCardSpent: number;
+	unpaidBills: number;
+	remainingBudget: number | null;
+	previousExpense: number;
+	plan: { savingsGoal: number } | null;
+}
+
+export interface MonthlyFacts {
+	status: string;
+	highlights: string[];
+	attention: string[];
+}
+
+/** A complete, deterministic review that stays available without an LLM. */
+export function buildMonthlyFacts(input: MonthlyFactsInput): MonthlyFacts {
+	const highlights: string[] = [];
+	const attention: string[] = [];
+	// The same formatter the figures and the charts use, so a number quoted in a
+	// sentence cannot disagree with the identical number in a tile above it.
+	const money = (value: number) => formatNumber(Math.round(value));
+
+	if (input.income <= 0 && input.expense <= 0) {
+		return { status: 'ยังไม่มีข้อมูลพอสำหรับสรุปเดือนนี้', highlights, attention };
+	}
+
+	if (input.previousExpense > 0) {
+		const delta = input.expense - input.previousExpense;
+		if (Math.abs(delta) >= 1) {
+			const direction = delta > 0 ? 'เพิ่มขึ้น' : 'ลดลง';
+			highlights.push(`รายจ่าย${direction} ${money(Math.abs(delta))} บาทจากเดือนก่อน`);
+		}
+	}
+
+	if (input.savingsRate !== null) {
+		highlights.push(`เหลือเงิน ${money(input.savings)} บาท หรือ ${Math.round(input.savingsRate)}% ของรายรับ`);
+	}
+	if (input.plan && input.savings >= input.plan.savingsGoal) {
+		highlights.push(`ถึงเป้าเงินเก็บ ${money(input.plan.savingsGoal)} บาทแล้ว`);
+	}
+	if (input.creditCardSpent > 0) {
+		attention.push(`ยอดที่บันทึกผ่านบัตรเครดิต ${money(input.creditCardSpent)} บาท`);
+	}
+	if (input.unpaidBills > 0) {
+		attention.push(`ยังมีบิลรอจ่าย ${money(input.unpaidBills)} บาท`);
+	}
+	if (input.remainingBudget !== null) {
+		if (input.remainingBudget >= 0) highlights.push(`งบหลังหักเป้าเงินเก็บและบิลยังเหลือ ${money(input.remainingBudget)} บาท`);
+		else attention.push(`ใช้เกินงบหลังกันเงินเก็บและบิล ${money(Math.abs(input.remainingBudget))} บาท`);
+	}
+	if (input.net < 0) attention.push(`รายจ่ายมากกว่ารายรับ ${money(Math.abs(input.net))} บาท`);
+
+	return {
+		status: input.net >= 0 ? 'รายรับยังครอบคลุมรายจ่ายที่บันทึก' : 'รายจ่ายสูงกว่ารายรับที่บันทึก',
+		highlights,
+		attention
+	};
 }

@@ -5,7 +5,7 @@
 	import MonthCompare from '$lib/components/MonthCompare.svelte';
 	import MonthNavigator from '$lib/components/MonthNavigator.svelte';
 	import StatFigure from '$lib/components/StatFigure.svelte';
-	import { totalSavings } from '$lib/insights';
+	import { buildMonthlyFacts, totalSavings } from '$lib/insights';
 	import { formatThaiShortDate } from '$lib/utils/date';
 	import { formatNumber } from '$lib/utils/money';
 	import type { ActionData, PageData } from './$types';
@@ -20,6 +20,7 @@
 	const hasData = $derived(data.input.transactionCount > 0);
 	const perDay = $derived(data.input.daysElapsed > 0 ? data.input.expense / data.input.daysElapsed : 0);
 	const savingsTotal = $derived(insight ? totalSavings(insight.savings) : 0);
+	const facts = $derived(buildMonthlyFacts(data.input));
 </script>
 
 <svelte:head>
@@ -34,16 +35,49 @@
 </section>
 
 <section class="figures">
+	<StatFigure label="รายรับ" value={data.input.income} tone="in" />
 	<StatFigure label="จ่ายไปแล้ว" value={data.input.expense} tone="out" emphasis />
-	<StatFigure label="เดือนก่อน" value={data.input.previousExpense} tone="neutral" />
-	<StatFigure label="เฉลี่ยต่อวัน" value={Math.round(perDay)} tone="neutral" />
+	<StatFigure label="เงินที่เหลือ" value={data.input.savings} tone="in" />
+	<StatFigure label="ยอดบัตรเครดิต" value={data.input.creditCardSpent} tone="out" />
 	<StatFigure label="บิลที่ยังไม่จ่าย" value={data.input.unpaidBills} tone="out" />
+	<!-- Without a monthly plan there is no budget to have anything left of, and a
+	     tile reading "0 บาท" would say the opposite of that. -->
+	{#if data.input.remainingBudget !== null}
+		<StatFigure
+			label="งบที่เหลือ"
+			value={data.input.remainingBudget}
+			tone={data.input.remainingBudget < 0 ? 'out' : 'neutral'}
+			caption="หลังกันเป้าเงินเก็บและบิล"
+		/>
+	{:else}
+		<div class="no-plan">
+			<p class="eyebrow">งบที่เหลือ</p>
+			<p>ยังไม่ได้ตั้งแผนเดือนนี้</p>
+			<a href="/plan?month={data.month.key}">ตั้งแผนเดือน</a>
+		</div>
+	{/if}
+</section>
+
+<section class="card facts">
+	<p class="eyebrow">ข้อเท็จจริงจากข้อมูล</p>
+	<h2>{facts.status}</h2>
+	<p class="facts-meta">
+		เฉลี่ยใช้จ่าย {formatNumber(Math.round(perDay))} บาท/วัน
+		{#if data.input.savingsRate !== null} · อัตราออม {Math.round(data.input.savingsRate)}%{/if}
+	</p>
+	{#if facts.highlights.length > 0}
+		<ul>{#each facts.highlights as item}<li>{item}</li>{/each}</ul>
+	{/if}
+	{#if facts.attention.length > 0}
+		<h3>รายการที่ควรเช็ก</h3>
+		<ul class="attention">{#each facts.attention as item}<li>{item}</li>{/each}</ul>
+	{/if}
 </section>
 
 <section class="card analysis">
 	<div class="analysis-head">
 		<div>
-			<p class="eyebrow">บทวิเคราะห์</p>
+			<p class="eyebrow">คำแนะนำจาก Gemini</p>
 			<h2>{insight ? insight.headline : 'อยากรู้ว่าควรประหยัดตรงไหน'}</h2>
 		</div>
 		{#if hasData && data.llmEnabled}
@@ -112,8 +146,7 @@
 		{/if}
 
 		<p class="disclaimer">
-			บทวิเคราะห์และตัวเลขที่ประเมินไว้เขียนโดย AI จึงเป็นการคาดคะเน ไม่ใช่ข้อเท็จจริง
-			ตัวเลขจริงคือกราฟและรายการด้านล่าง{#if data.analysis}
+			คำแนะนำส่วนนี้เขียนโดย AI และเป็นการคาดคะเน ตัวเลขจริงอยู่ในส่วนข้อเท็จจริงและกราฟ{#if data.analysis}
 				· เขียนเมื่อ {formatThaiShortDate(data.analysis.createdAt)}{/if}
 		</p>
 	{:else}
@@ -154,7 +187,7 @@
 	}
 	.figures {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 1rem;
 		margin-bottom: var(--stack);
 	}
@@ -207,6 +240,31 @@
 	}
 	.muted {
 		color: var(--ink-muted);
+	}
+	.no-plan {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 1.1rem 1.25rem 1.25rem;
+		border-left: 3px solid var(--rule-strong);
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+	}
+	.no-plan a {
+		color: var(--accent);
+		font-weight: 600;
+	}
+	.facts-meta {
+		color: var(--ink-muted);
+		margin-bottom: 0.65rem;
+	}
+	.facts ul {
+		display: grid;
+		gap: 0.35rem;
+		padding-left: 1.2rem;
+	}
+	.facts .attention {
+		color: var(--out);
 	}
 	.summary {
 		margin-bottom: 0.8rem;
