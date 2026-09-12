@@ -57,6 +57,13 @@
       "when": 1789220696263,
       "tag": "0007_curly_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789222274493,
+      "tag": "0008_shiny_toad_men",
+      "breakpoints": true
     }
   ]
 }

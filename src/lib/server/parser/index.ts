@@ -1,6 +1,6 @@
 import { parseInstallment } from './installment';
 import { parseByLlm } from './llm';
-import { extractDate, extractPaymentMethod, matchCommand, normalize, parseByRules } from './rules';
+import { extractDate, matchCommand, normalize, parseByRules } from './rules';
 import type { ParseOutcome } from './types';
 
 export * from './types';
@@ -16,7 +16,12 @@ export { matchCommand, normalize, parseByRules } from './rules';
  *  2. an amount was found but no keyword matched a category, so the rules would
  *     have dumped it into "อื่นๆ"
  */
-export async function parseMessage(rawText: string, now = new Date()): Promise<ParseOutcome> {
+export interface ParseOptions {
+	/** Required before a paid fallback can run; keeps quota ownership explicit. */
+	userId?: number;
+}
+
+export async function parseMessage(rawText: string, now = new Date(), options: ParseOptions = {}): Promise<ParseOutcome> {
 	const command = matchCommand(rawText);
 	if (command) return { type: 'command', command };
 	if (extractDate(normalize(rawText), now).invalid) return { type: 'unknown', text: rawText };
@@ -29,8 +34,8 @@ export async function parseMessage(rawText: string, now = new Date()): Promise<P
 	const ruled = parseByRules(rawText, now);
 	if (ruled?.categoryMatched) return { type: 'transaction', tx: ruled.tx };
 
-	const guessed = await parseByLlm(rawText, now);
-	if (guessed) return { type: 'transaction', tx: { ...guessed, paymentMethod: extractPaymentMethod(rawText).paymentMethod } };
+	const guessed = await parseByLlm(rawText, now, options.userId);
+	if (guessed) return { type: 'transaction', tx: guessed };
 
 	// LLM unavailable or unhelpful: an uncategorised rule hit still beats
 	// throwing the entry away.
@@ -51,13 +56,13 @@ export async function parseMessage(rawText: string, now = new Date()): Promise<P
  * lines actually carry money: a note that happens to wrap over several lines
  * must not turn into a list.
  */
-export async function parseEntries(rawText: string, now = new Date()): Promise<ParseOutcome[]> {
+export async function parseEntries(rawText: string, now = new Date(), options: ParseOptions = {}): Promise<ParseOutcome[]> {
 	const lines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-	if (lines.length < 2) return [await parseMessage(rawText, now)];
+	if (lines.length < 2) return [await parseMessage(rawText, now, options)];
 
-	const perLine = await Promise.all(lines.map((line) => parseMessage(line, now)));
+	const perLine = await Promise.all(lines.map((line) => parseMessage(line, now, options)));
 	if (perLine.filter((outcome) => outcome.type === 'transaction').length < 2) {
-		return [await parseMessage(rawText, now)];
+		return [await parseMessage(rawText, now, options)];
 	}
 	return perLine;
 }

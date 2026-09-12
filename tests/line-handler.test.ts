@@ -51,7 +51,7 @@ vi.mock('$lib/server/parser', () => ({
 	// The handler asks for a list; these tests are about the single-entry path,
 	// so one outcome comes back and the multi-entry rules are covered separately
 	// in tests/multi-entry.test.ts.
-	parseEntries: async (text: string, now?: Date) => [await mocks.parseMessage(text, now)],
+	parseEntries: async (text: string, now?: Date, options?: unknown) => [await mocks.parseMessage(text, now, options)],
 	matchCommand: (text: string) =>
 		text === 'ไอดี'
 			? 'whoami'
@@ -148,7 +148,7 @@ describe('LINE processing', () => {
 	});
 	it('records through the transaction executor using original send time', async () => {
 		await handleEvents([event]);
-		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!));
+		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!), { userId: owner.id });
 		expect(mocks.insertTransactionIfUnique).toHaveBeenCalledWith(expect.objectContaining({ amount: '60.00', lineUserId: 'owner', userId: owner.id, fingerprint: expect.any(String) }), executor);
 		expect(mocks.replyText).toHaveBeenCalledOnce();
 	});
@@ -160,7 +160,7 @@ describe('LINE processing', () => {
 	});
 	it('lets the user explicitly save a legitimate repeated text entry', async () => {
 		await handleEvents([{ ...event, message: { ...event.message!, text: 'บันทึกซ้ำ ข้าว 60' } }]);
-		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!));
+		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!), { userId: owner.id });
 		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ rawText: 'ข้าว 60' }), executor);
 		expect(mocks.insertTransactionIfUnique).not.toHaveBeenCalled();
 	});
@@ -277,7 +277,7 @@ describe('LINE processing', () => {
 		mocks.parseMessage.mockResolvedValueOnce({ type: 'transaction', tx: { kind: 'expense', amount: 100, categoryId: 'food', note: 'ค่าอาหาร', occurredAt: pendingReady.occurredAt, parsedBy: 'rule' } });
 		await handleEvents([{ ...event, message: { id: 'message-2', type: 'text', text: 'ค่าอาหาร' } }]);
 		expect(mocks.parseMessage).toHaveBeenCalledOnce();
-		expect(mocks.parseMessage).toHaveBeenCalledWith('ค่าอาหาร 100.00', pendingReady.occurredAt);
+		expect(mocks.parseMessage).toHaveBeenCalledWith('ค่าอาหาร 100.00', pendingReady.occurredAt, { userId: owner.id });
 		expect(mocks.updateOwnedPendingSlip).toHaveBeenCalledWith(7, owner.id, expect.objectContaining({ categoryId: 'food', note: 'ค่าอาหาร' }), executor);
 		expect(mocks.insertTransaction).not.toHaveBeenCalled();
 		expect(mocks.replyQuickReplies).toHaveBeenCalledWith('reply', expect.stringContaining('ตรวจสอบรายการ'), expect.any(Array));

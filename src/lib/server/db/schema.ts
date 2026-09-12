@@ -256,9 +256,28 @@ export const llmQuota = pgTable(
 		userId: ownerId(),
 		/** Bangkok calendar day, `YYYY-MM-DD`. */
 		day: varchar('day', { length: 10 }).notNull(),
+		workflow: varchar('workflow', { length: 24 }).notNull().default('insights'),
 		used: integer('used').notNull().default(0)
 	},
-	(t) => [primaryKey({ columns: [t.userId, t.day] })]
+	(t) => [primaryKey({ columns: [t.userId, t.day, t.workflow] })]
+);
+
+/** Provider usage without prompts or financial text. */
+export const llmUsage = pgTable(
+	'llm_usage',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		workflow: varchar('workflow', { length: 24 }).notNull(),
+		provider: varchar('provider', { length: 16 }).notNull(),
+		model: varchar('model', { length: 64 }).notNull(),
+		inputTokens: integer('input_tokens').notNull().default(0),
+		outputTokens: integer('output_tokens').notNull().default(0),
+		success: boolean('success').notNull(),
+		errorCode: varchar('error_code', { length: 32 }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('llm_usage_user_created_idx').on(t.userId, t.createdAt)]
 );
 
 export type User = typeof users.$inferSelect;

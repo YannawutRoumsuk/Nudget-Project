@@ -171,13 +171,13 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		// on text such as “ค่าอาหาร” that intentionally contains no number.
 		outcomes = [
 			pending.status === 'ready' && pending.amount && !command
-				? await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt)
-				: await parseMessage(text, sentAt)
+				? await parseMessage(`${text} ${pending.amount}`, pending.occurredAt ?? sentAt, { userId: user.id })
+				: await parseMessage(text, sentAt, { userId: user.id })
 		];
 	} else {
 		outcomes = entryCommand
-			? [await parseMessage(entryText, sentAt)]
-			: await parseEntries(entryText, sentAt);
+			? [await parseMessage(entryText, sentAt, { userId: user.id })]
+			: await parseEntries(entryText, sentAt, { userId: user.id });
 	}
 	const response = await processEventOnce(eventId, (executor) =>
 		respondTo(outcomes, entryText, user, executor, pending, sentAt, Boolean(override))

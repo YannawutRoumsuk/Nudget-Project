@@ -7,7 +7,7 @@ export type OcrProvider = 'gemini' | 'tesseract' | 'auto';
 
 const DEFAULT_MODELS: Record<Exclude<LlmProvider, 'none'>, string> = {
 	anthropic: 'claude-haiku-4-5-20251001',
-	gemini: 'gemini-2.5-flash'
+	gemini: 'gemini-2.5-flash-lite'
 };
 
 function resolveLlm() {
@@ -32,7 +32,15 @@ function resolveLlm() {
 
 	if (provider !== 'none' && !apiKey) {
 		console.warn(`[config] LLM_PROVIDER=${provider} but its API key is empty — LLM fallback off`);
-		return { provider: 'none' as const, apiKey: '', model: '' };
+		return {
+			provider: 'none' as const,
+			apiKey: '',
+			model: '',
+			parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
+			maxInputChars: boundedInteger(env.LLM_PARSER_MAX_INPUT_CHARS, 500, 50, 2_000),
+			maxOutputTokens: boundedInteger(env.LLM_PARSER_MAX_OUTPUT_TOKENS, 150, 50, 400),
+			timeoutMs: boundedInteger(env.LLM_TIMEOUT_MS, 8_000, 1_000, 30_000)
+		};
 	}
 
 	return {
@@ -40,7 +48,11 @@ function resolveLlm() {
 		apiKey,
 		model:
 			(env.LLM_MODEL ?? '').trim() ||
-			(provider === 'none' ? '' : DEFAULT_MODELS[provider])
+			(provider === 'none' ? '' : DEFAULT_MODELS[provider]),
+		parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
+		maxInputChars: boundedInteger(env.LLM_PARSER_MAX_INPUT_CHARS, 500, 50, 2_000),
+		maxOutputTokens: boundedInteger(env.LLM_PARSER_MAX_OUTPUT_TOKENS, 150, 50, 400),
+		timeoutMs: boundedInteger(env.LLM_TIMEOUT_MS, 8_000, 1_000, 30_000)
 	};
 }
 
