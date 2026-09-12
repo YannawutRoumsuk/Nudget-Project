@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { categoryLabel } from '$lib/categories';
 import { config } from '$lib/server/config';
+import { callOpenRouter } from '$lib/server/llm/openrouter';
 import { recordLlmUsage } from '$lib/server/db/quota';
 import type { InsightInput } from './input';
 
@@ -85,7 +86,11 @@ export async function generateInsight(input: InsightInput, userId: number): Prom
 	try {
 		const prompt = buildPrompt(input);
 		const result =
-			config.llm.provider === 'anthropic' ? await callAnthropic(prompt) : await callGemini(prompt);
+			config.llm.provider === 'anthropic'
+				? await callAnthropic(prompt)
+				: config.llm.provider === 'openrouter'
+					? await callGateway(prompt)
+					: await callGemini(prompt);
 		if (result === null) {
 			await saveUsage(userId, false, 0, 0, 'provider_error');
 			return null;
@@ -333,6 +338,25 @@ async function callGemini(prompt: string): Promise<ProviderResult | null> {
  * while a second failure means the page should render without commentary now
  * rather than keep someone waiting on a paragraph.
  */
+/**
+ * The gateway route. Returns null on a refusal like the other two, so the page
+ * shows its charts without commentary rather than an error.
+ */
+async function callGateway(prompt: string): Promise<ProviderResult | null> {
+	try {
+		return await callOpenRouter({
+			apiKey: config.llm.apiKey,
+			model: config.llm.model,
+			prompt,
+			maxOutputTokens: MAX_TOKENS,
+			timeoutMs: TIMEOUT_MS
+		});
+	} catch (error) {
+		console.error('[insights] OpenRouter refused:', error instanceof Error ? error.message : 'unknown');
+		return null;
+	}
+}
+
 async function request(url: string, headers: Record<string, string>, body: string): Promise<Response | null> {
 	for (let attempt = 0; attempt < 2; attempt++) {
 		let res: Response;

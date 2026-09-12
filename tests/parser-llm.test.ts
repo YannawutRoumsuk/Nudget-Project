@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
 	config: {
 		llm: {
-			provider: 'gemini' as 'gemini' | 'none', apiKey: 'test-key', model: 'gemini-2.5-flash-lite',
+			provider: 'gemini' as 'gemini' | 'openrouter' | 'none', apiKey: 'test-key', model: 'gemini-2.5-flash-lite',
 			parserDailyLimit: 2, maxInputChars: 500, maxOutputTokens: 150, timeoutMs: 8_000
 		}
 	},
@@ -81,5 +81,50 @@ describe('metered LLM parser fallback', () => {
 		expect(result.type).toBe('transaction');
 		expect(state.claim).not.toHaveBeenCalled();
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe('the parser through OpenRouter', () => {
+	beforeEach(() => {
+		state.config.llm.provider = 'openrouter';
+		state.config.llm.apiKey = 'sk-or-test';
+		state.config.llm.model = 'google/gemini-2.5-flash-lite';
+		state.claim.mockResolvedValue(true);
+	});
+
+	it('reaches the gateway instead of Google and still returns an entry', async () => {
+		fetchMock.mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				choices: [{ message: { content: JSON.stringify({
+					isTransaction: true, kind: 'expense', amount: 250, category: 'other',
+					note: 'atelier', date: null, paymentMethod: 'bank'
+				}) } }],
+				usage: { prompt_tokens: 91, completion_tokens: 30 }
+			}),
+			text: async () => ''
+		});
+
+		const result = await parseMessage('atelier 250', NOW, { userId: 7 });
+
+		expect(fetchMock.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+		expect(result).toMatchObject({ type: 'transaction', tx: { amount: 250, parsedBy: 'llm' } });
+		// The counters must come from the gateway's own field names, or the bill
+		// silently reads as zero for every call made this way.
+		expect(state.record).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: 'openrouter', inputTokens: 91, outputTokens: 30, success: true })
+		);
+	});
+
+	it('refunds the claim when the gateway refuses', async () => {
+		fetchMock.mockResolvedValue({ ok: false, status: 402, text: async () => 'no credits' });
+		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		await parseMessage('atelier 250', NOW, { userId: 7 });
+
+		expect(state.release).toHaveBeenCalledWith(7, NOW, 'parser');
+		expect(state.record).toHaveBeenCalledWith(expect.objectContaining({ errorCode: 'http_402' }));
+		log.mockRestore();
 	});
 });

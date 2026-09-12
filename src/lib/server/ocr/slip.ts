@@ -12,7 +12,9 @@ export interface SlipOcrResult {
 	recipient: string;
 	reference: string;
 	text: string;
-	provider: 'gemini' | 'tesseract';
+	/** Which host read the image. Recorded per slip, because that is the row
+	 *  someone checks when they ask where a bank slip went. */
+	provider: 'gemini' | 'openrouter' | 'tesseract';
 	confidence: { amount: number; date: number; recipient: number };
 }
 
