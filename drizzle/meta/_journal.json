@@ -64,6 +64,13 @@
       "when": 1789222274493,
       "tag": "0008_shiny_toad_men",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789223100848,
+      "tag": "0009_useful_ben_grimm",
+      "breakpoints": true
     }
   ]
 }

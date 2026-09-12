@@ -80,7 +80,8 @@ const pendingReady = {
 	id: 7, userId: owner.id, lineUserId: 'owner', messageId: 'image-1', status: 'ready' as const,
 	amount: '100.00', occurredAt: new Date('2026-09-01T05:00:00Z'), categoryId: 'other',
 	paymentMethod: 'bank' as const, note: 'ร้านตัวอย่าง', recipient: 'ร้านตัวอย่าง', reference: '',
-	ocrText: 'จำนวนเงิน 100.00 บาท', fingerprint: 'a'.repeat(64), expiresAt: new Date('2099-01-01T00:00:00Z'),
+	ocrText: 'จำนวนเงิน 100.00 บาท', ocrProvider: 'gemini', amountConfidence: '0.99',
+	dateConfidence: '0.95', recipientConfidence: '0.80', fingerprint: 'a'.repeat(64), expiresAt: new Date('2099-01-01T00:00:00Z'),
 	createdAt: new Date(), updatedAt: new Date()
 };
 const event: LineEvent = {

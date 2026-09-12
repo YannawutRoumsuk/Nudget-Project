@@ -13,6 +13,9 @@ export interface SlipReviewData {
 	recipient?: string;
 	categoryId: string;
 	paymentMethod: string;
+	amountConfidence?: number | string | null;
+	dateConfidence?: number | string | null;
+	recipientConfidence?: number | string | null;
 }
 
 const paymentMethodLabels: Record<string, string> = {
@@ -29,6 +32,11 @@ export function slipReviewText(slip: SlipReviewData): string {
 	const occurredAt = slip.occurredAt
 		? `${formatThaiShortDate(slip.occurredAt)} ${formatThaiTime(slip.occurredAt)} น.`
 		: 'วันนี้';
+	const warnings = [
+		confidenceWarning('ยอดเงิน', slip.amountConfidence),
+		confidenceWarning('วันที่', slip.dateConfidence),
+		confidenceWarning('ผู้รับ', slip.recipientConfidence)
+	].filter(Boolean);
 	return [
 		'🧾 ตรวจสอบรายการจากสลิป',
 		'',
@@ -37,9 +45,16 @@ export function slipReviewText(slip: SlipReviewData): string {
 		`ผู้รับ: ${slip.recipient?.trim() || 'ไม่ทราบชื่อ'}`,
 		`หมวดหมู่: ${categoryLine(slip.categoryId)}`,
 		`จ่ายด้วย: ${paymentMethodLabels[slip.paymentMethod] ?? slip.paymentMethod}`,
+		...(warnings.length ? ['', '⚠️ ควรตรวจอีกครั้ง', ...warnings] : []),
 		'',
 		'เลือกการทำรายการด้านล่าง'
 	].join('\n');
+}
+
+function confidenceWarning(label: string, value: number | string | null | undefined): string {
+	if (value === null || value === undefined) return '';
+	const confidence = Number(value);
+	return Number.isFinite(confidence) && confidence < 0.7 ? `• ${label}อ่านได้ไม่ชัด` : '';
 }
 
 export function slipReviewActions(id: number) {

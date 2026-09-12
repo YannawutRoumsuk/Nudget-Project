@@ -91,7 +91,10 @@ export const config = {
 	ocr: {
 		mode: (env.OCR_MODE ?? 'inline').trim() === 'worker' ? 'worker' as const : 'inline' as const,
 		provider: resolveOcrProvider(),
-		vision: resolveOcrVision()
+		vision: resolveOcrVision(),
+		dailyLimit: boundedInteger(env.OCR_DAILY_LIMIT, 20, 0, 200),
+		maxOutputTokens: boundedInteger(env.OCR_MAX_OUTPUT_TOKENS, 600, 100, 1_500),
+		timeoutMs: boundedInteger(env.OCR_TIMEOUT_MS, 12_000, 2_000, 30_000)
 	},
 	reminders: {
 		mode: (env.REMINDER_MODE ?? 'timer').trim() === 'cron' ? 'cron' as const : 'timer' as const,

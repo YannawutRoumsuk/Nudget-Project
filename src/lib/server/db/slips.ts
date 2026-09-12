@@ -71,7 +71,7 @@ export async function replacePendingSlip(
 
 export async function updatePendingSlip(
 	id: number,
-	values: Partial<Pick<typeof pendingSlips.$inferInsert, 'status' | 'amount' | 'occurredAt' | 'categoryId' | 'paymentMethod' | 'note' | 'recipient' | 'reference' | 'ocrText' | 'fingerprint' | 'expiresAt'>>
+	values: Partial<Pick<typeof pendingSlips.$inferInsert, 'status' | 'amount' | 'occurredAt' | 'categoryId' | 'paymentMethod' | 'note' | 'recipient' | 'reference' | 'ocrText' | 'ocrProvider' | 'amountConfidence' | 'dateConfidence' | 'recipientConfidence' | 'fingerprint' | 'expiresAt'>>
 ): Promise<PendingSlip | null> {
 	const [row] = await db
 		.update(pendingSlips)
