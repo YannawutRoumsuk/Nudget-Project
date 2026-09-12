@@ -59,6 +59,22 @@ export async function insertTransaction(tx: NewTransaction, executor: DbExecutor
 	return row;
 }
 
+/**
+ * The unique user/fingerprint index owns the race: two concurrent webhook
+ * events may both reach this call, but only one can create a ledger row.
+ */
+export async function insertTransactionIfUnique(
+	tx: NewTransaction & { fingerprint: string },
+	executor: DbExecutor = db
+): Promise<Transaction | null> {
+	const [row] = await executor
+		.insert(transactions)
+		.values(tx)
+		.onConflictDoNothing()
+		.returning();
+	return row ?? null;
+}
+
 export async function deleteTransaction(id: number, userId: number, executor: DbExecutor = db): Promise<boolean> {
 	const deleted = await executor
 		.delete(transactions)

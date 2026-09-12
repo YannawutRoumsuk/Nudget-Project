@@ -121,9 +121,16 @@ export const transactions = pgTable(
 		/** Original LINE message, kept so a mis-parse can be diagnosed later. */
 		rawText: text('raw_text').notNull().default(''),
 		lineUserId: text('line_user_id'),
+		/** Opaque source signature. Unique only inside one user's ledger. */
+		fingerprint: varchar('fingerprint', { length: 64 }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [index('transactions_user_occurred_at_idx').on(t.userId, t.occurredAt)]
+	(t) => [
+		index('transactions_user_occurred_at_idx').on(t.userId, t.occurredAt),
+		uniqueIndex('transactions_user_fingerprint_idx')
+			.on(t.userId, t.fingerprint)
+			.where(sql`${t.fingerprint} is not null`)
+	]
 );
 
 export const billPayments = pgTable(
@@ -146,7 +153,7 @@ export const pendingSlips = pgTable(
 		userId: ownerId(),
 		lineUserId: text('line_user_id').notNull(),
 		messageId: text('message_id').notNull(),
-		status: varchar('status', { length: 12 }).notNull().$type<'queued' | 'processing' | 'ready' | 'failed'>(),
+		status: varchar('status', { length: 12 }).notNull().$type<'queued' | 'processing' | 'ready' | 'saving' | 'failed'>(),
 		amount: numeric('amount', { precision: 12, scale: 2 }),
 		occurredAt: timestamp('occurred_at', { withTimezone: true }),
 		categoryId: varchar('category_id', { length: 32 })
@@ -158,6 +165,7 @@ export const pendingSlips = pgTable(
 		recipient: text('recipient').notNull().default(''),
 		reference: text('reference').notNull().default(''),
 		ocrText: text('ocr_text').notNull().default(''),
+		fingerprint: varchar('fingerprint', { length: 64 }),
 		expiresAt: timestamp('expires_at', { withTimezone: true })
 			.notNull()
 			.default(sql`now() + interval '24 hours'`),

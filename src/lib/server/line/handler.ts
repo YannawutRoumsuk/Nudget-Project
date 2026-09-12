@@ -2,6 +2,7 @@ import { EXPENSE_CATEGORIES, FALLBACK_CATEGORY } from '$lib/categories';
 import { analyzeBudget } from '$lib/budget';
 import { billDueDate } from '$lib/bills';
 import { config } from '$lib/server/config';
+import { textTransactionFingerprint } from '$lib/server/dedupe';
 import { admit, isOwner } from '$lib/server/access';
 import { claimPendingAction, listMembers, pendingActionIsLive, setPendingAction } from '$lib/server/db/users';
 import {
@@ -20,18 +21,20 @@ import {
 	getPaymentMethodTotal,
 	getTotals,
 	insertTransaction,
+	insertTransactionIfUnique,
 	updateLatestTransactionNote,
 } from '$lib/server/db/queries';
 import type { DbExecutor } from '$lib/server/db/queries';
 import {
-	consumePendingSlip,
+	claimPendingSlipForSave,
 	deleteOwnedPendingSlip,
 	deletePendingSlip,
 	getPendingSlip,
 	replacePendingSlip,
+	releasePendingSlipSave,
 	updateOwnedPendingSlip
 } from '$lib/server/db/slips';
-import type { Feedback, PendingSlip, User } from '$lib/server/db/schema';
+import type { Feedback, NewTransaction, PendingSlip, User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseEntries, parseMessage } from '$lib/server/parser';
 import type { BotCommand, InstallmentPlan, ParseOutcome } from '$lib/server/parser';
@@ -53,6 +56,9 @@ import {
 	confirmNoteUpdated,
 	confirmSaved,
 	confirmSavedMany,
+	duplicateSlipActions,
+	duplicateSlipText,
+	duplicateTextWarning,
 	helpText,
 	dashboardLinkText,
 	feedbackPromptText,
@@ -153,6 +159,9 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		return;
 	}
 	const command = matchCommand(text);
+	const override = !pending ? duplicateOverride(text) : null;
+	const entryText = override?.text ?? text;
+	const entryCommand = matchCommand(entryText);
 	// A slip conversation is about one payment, so it never splits into a list.
 	// Everything else may carry one entry per line.
 	let outcomes: ParseOutcome[];
@@ -166,10 +175,12 @@ async function handleEvent(event: LineEvent): Promise<void> {
 				: await parseMessage(text, sentAt)
 		];
 	} else {
-		outcomes = await parseEntries(text, sentAt);
+		outcomes = entryCommand
+			? [await parseMessage(entryText, sentAt)]
+			: await parseEntries(entryText, sentAt);
 	}
 	const response = await processEventOnce(eventId, (executor) =>
-		respondTo(outcomes, text, user, executor, pending)
+		respondTo(outcomes, entryText, user, executor, pending, sentAt, Boolean(override))
 	);
 	if (response === null) return;
 	try {
@@ -183,6 +194,7 @@ async function handleEvent(event: LineEvent): Promise<void> {
 type LineResponse =
 	| string
 	| { kind: 'slip'; slip: PendingSlip }
+	| { kind: 'duplicate-slip'; slip: PendingSlip }
 	| { kind: 'categories'; pendingId: number };
 
 async function replyResponse(replyToken: string, response: LineResponse): Promise<void> {
@@ -197,7 +209,17 @@ async function replyResponse(replyToken: string, response: LineResponse): Promis
 		})));
 		return;
 	}
+	if (response.kind === 'duplicate-slip') {
+		await replyQuickReplies(replyToken, duplicateSlipText(response.slip), duplicateSlipActions(response.slip.id));
+		return;
+	}
 	await replyQuickReplies(replyToken, slipReviewText(response.slip), slipReviewActions(response.slip.id));
+}
+
+function duplicateOverride(text: string): { text: string } | null {
+	const match = /^บันทึกซ้ำ(?:\s+|\r?\n)([\s\S]+)$/i.exec(text.trim());
+	const rest = match?.[1].trim() ?? '';
+	return rest ? { text: rest } : null;
 }
 
 function pendingExpired(pending: PendingSlip): boolean {
@@ -208,7 +230,7 @@ async function handleSlipPostback(event: LineEvent, user: User): Promise<void> {
 	if (!event.replyToken) return;
 	const data = event.postback?.data ?? '';
 	const categoryMatch = /^slip:category:(\d+):([a-z_]{1,32})$/.exec(data);
-	const actionMatch = /^slip:(save|edit-amount|change-category|change-date|cancel):(\d+)$/.exec(data);
+	const actionMatch = /^slip:(save|force-save|edit-amount|change-category|change-date|cancel):(\d+)$/.exec(data);
 	if (!categoryMatch && !actionMatch) return;
 	const pendingId = Number(categoryMatch?.[1] ?? actionMatch?.[2]);
 	if (!Number.isSafeInteger(pendingId) || pendingId <= 0) return;
@@ -222,6 +244,8 @@ async function handleSlipPostback(event: LineEvent, user: User): Promise<void> {
 			await deleteOwnedPendingSlip(pending.id, user.id, executor);
 			return 'สลิปนี้หมดเวลาแล้ว กรุณาส่งรูปใหม่อีกครั้ง';
 		}
+		if (pending.status === 'saving') return 'กำลังบันทึกรายการนี้อยู่ รอสักครู่นะ';
+		if (pending.status !== 'ready') return 'รายการนี้ยังไม่พร้อมบันทึก';
 
 		if (categoryMatch) {
 			const category = EXPENSE_CATEGORIES.find((item) => item.id === categoryMatch[2]);
@@ -240,23 +264,34 @@ async function handleSlipPostback(event: LineEvent, user: User): Promise<void> {
 			case 'cancel':
 				await deleteOwnedPendingSlip(pending.id, user.id, executor);
 				return 'ยกเลิกสลิปแล้ว';
-			case 'save': {
+			case 'save':
+			case 'force-save': {
 				if (!pending.amount || toNumber(pending.amount) <= 0) return 'ยังไม่มียอดเงิน กด “แก้ยอด” ก่อนบันทึก';
-				const claimed = await consumePendingSlip(pending.id, user.id, executor);
+				const claimed = await claimPendingSlipForSave(pending.id, user.id, executor);
 				if (!claimed) return 'รายการนี้ถูกบันทึก ยกเลิก หรือหมดเวลาแล้ว';
-				const saved = await insertTransaction({
+				const values: NewTransaction = {
 					userId: user.id,
 					kind: 'expense',
 					amount: claimed.amount!,
 					categoryId: claimed.categoryId,
 					note: claimed.note,
-					occurredAt: claimed.occurredAt ?? new Date(),
+					occurredAt: claimed.occurredAt ?? new Date(event.timestamp ?? Date.now()),
 					paymentMethod: claimed.paymentMethod,
 					source: 'line',
 					parsedBy: 'ocr',
 					rawText: `[OCR]\n${claimed.ocrText}`,
 					lineUserId: user.lineUserId
-				}, executor);
+				};
+				const saved = actionMatch![1] === 'save' && claimed.fingerprint
+					? await insertTransactionIfUnique({ ...values, fingerprint: claimed.fingerprint }, executor)
+					: await insertTransaction(values, executor);
+				if (!saved) {
+					const restored = await releasePendingSlipSave(claimed.id, user.id, executor);
+					return restored
+						? { kind: 'duplicate-slip', slip: restored }
+						: 'รายการนี้ถูกบันทึกหรือยกเลิกไปแล้ว';
+				}
+				await deleteOwnedPendingSlip(claimed.id, user.id, executor);
 				return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY.expense);
 			}
 		}
@@ -363,7 +398,9 @@ async function respondTo(
 	text: string,
 	user: User,
 	executor: DbExecutor,
-	pending: Awaited<ReturnType<typeof getPendingSlip>> = null
+	pending: Awaited<ReturnType<typeof getPendingSlip>> = null,
+	sentAt: Date,
+	forceDuplicate = false
 ): Promise<LineResponse> {
 	if (pending && pendingExpired(pending)) {
 		await deleteOwnedPendingSlip(pending.id, user.id, executor);
@@ -381,7 +418,7 @@ async function respondTo(
 		await deletePendingSlip(user.id, executor);
 		pending = null;
 	}
-	if (outcomes.length > 1) return saveBatch(outcomes, text, user, executor);
+	if (outcomes.length > 1) return saveBatch(outcomes, text, user, executor, sentAt, forceDuplicate);
 
 	const [outcome] = outcomes;
 	if (outcome.type === 'command') {
@@ -417,7 +454,7 @@ async function respondTo(
 	if (outcome.type === 'unknown') return unknownText(outcome.text);
 
 	const { tx } = outcome;
-	const saved = await insertTransaction({
+	const values: NewTransaction = {
 		userId: user.id,
 		kind: tx.kind,
 		amount: tx.amount.toFixed(2),
@@ -429,7 +466,11 @@ async function respondTo(
 		parsedBy: tx.parsedBy,
 		rawText: text,
 		lineUserId: user.lineUserId
-	}, executor);
+	};
+	const saved = forceDuplicate
+		? await insertTransaction(values, executor)
+		: await insertTransactionIfUnique({ ...values, fingerprint: textTransactionFingerprint(tx, sentAt) }, executor);
+	if (!saved) return duplicateTextWarning(text);
 	return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind]);
 }
 
@@ -518,18 +559,25 @@ async function saveBatch(
 	outcomes: ParseOutcome[],
 	text: string,
 	user: User,
-	executor: DbExecutor
+	executor: DbExecutor,
+	sentAt: Date,
+	forceDuplicate: boolean
 ): Promise<string> {
 	const saved = [];
 	const skipped: string[] = [];
+	let duplicates = 0;
+	const occurrences = new Map<string, number>();
 	for (const outcome of outcomes) {
 		if (outcome.type !== 'transaction') {
 			skipped.push(outcome.type === 'unknown' ? outcome.text : text);
 			continue;
 		}
 		const { tx } = outcome;
-		saved.push(
-			await insertTransaction({
+		const baseFingerprint = textTransactionFingerprint(tx, sentAt);
+		const occurrenceIndex = occurrences.get(baseFingerprint) ?? 0;
+		occurrences.set(baseFingerprint, occurrenceIndex + 1);
+		const sourceText = tx.note ? `${tx.note} ${tx.amount}` : text;
+		const values: NewTransaction = {
 				userId: user.id,
 				kind: tx.kind,
 				amount: tx.amount.toFixed(2),
@@ -539,12 +587,21 @@ async function saveBatch(
 				paymentMethod: tx.paymentMethod,
 				source: 'line',
 				parsedBy: tx.parsedBy,
-				rawText: tx.note ? `${tx.note} ${tx.amount}` : text,
+				rawText: sourceText,
 				lineUserId: user.lineUserId
-			}, executor)
-		);
+			};
+		const row = forceDuplicate
+			? await insertTransaction(values, executor)
+			: await insertTransactionIfUnique({
+				...values,
+				fingerprint: occurrenceIndex === 0
+					? baseFingerprint
+					: textTransactionFingerprint(tx, sentAt, occurrenceIndex)
+			}, executor);
+		if (row) saved.push(row);
+		else duplicates += 1;
 	}
-	return confirmSavedMany(saved, skipped);
+	return confirmSavedMany(saved, skipped, duplicates);
 }
 
 /**

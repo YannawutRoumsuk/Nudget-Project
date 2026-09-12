@@ -71,7 +71,7 @@ export async function replacePendingSlip(
 
 export async function updatePendingSlip(
 	id: number,
-	values: Partial<Pick<typeof pendingSlips.$inferInsert, 'status' | 'amount' | 'occurredAt' | 'categoryId' | 'paymentMethod' | 'note' | 'recipient' | 'reference' | 'ocrText' | 'expiresAt'>>
+	values: Partial<Pick<typeof pendingSlips.$inferInsert, 'status' | 'amount' | 'occurredAt' | 'categoryId' | 'paymentMethod' | 'note' | 'recipient' | 'reference' | 'ocrText' | 'fingerprint' | 'expiresAt'>>
 ): Promise<PendingSlip | null> {
 	const [row] = await db
 		.update(pendingSlips)
@@ -117,6 +117,43 @@ export async function consumePendingSlip(
 			eq(pendingSlips.userId, userId),
 			eq(pendingSlips.status, 'ready'),
 			gt(pendingSlips.expiresAt, new Date())
+		))
+		.returning();
+	return row ?? null;
+}
+
+/** Claims the review card so save and cancel cannot both win concurrently. */
+export async function claimPendingSlipForSave(
+	id: number,
+	userId: number,
+	executor: DbExecutor = db
+): Promise<PendingSlip | null> {
+	const [row] = await executor
+		.update(pendingSlips)
+		.set({ status: 'saving', updatedAt: new Date() })
+		.where(and(
+			eq(pendingSlips.id, id),
+			eq(pendingSlips.userId, userId),
+			eq(pendingSlips.status, 'ready'),
+			gt(pendingSlips.expiresAt, new Date())
+		))
+		.returning();
+	return row ?? null;
+}
+
+/** A duplicate keeps its draft alive so the user can explicitly override it. */
+export async function releasePendingSlipSave(
+	id: number,
+	userId: number,
+	executor: DbExecutor = db
+): Promise<PendingSlip | null> {
+	const [row] = await executor
+		.update(pendingSlips)
+		.set({ status: 'ready', updatedAt: new Date() })
+		.where(and(
+			eq(pendingSlips.id, id),
+			eq(pendingSlips.userId, userId),
+			eq(pendingSlips.status, 'saving')
 		))
 		.returning();
 	return row ?? null;

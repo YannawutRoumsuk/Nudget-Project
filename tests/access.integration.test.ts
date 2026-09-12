@@ -98,6 +98,28 @@ suite('membership against a real database', async () => {
 		expect(members.find((member) => member.lineUserId === 'Uguest')?.active).toBe(false);
 	});
 
+	it('enforces duplicate fingerprints per account without blocking another account', async () => {
+		const accountA = await admit('Udedupe-a');
+		const accountB = await admit('Udedupe-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		const { insertTransactionIfUnique } = await import('../src/lib/server/db/queries');
+		const base = {
+			kind: 'expense' as const,
+			amount: '60.00',
+			categoryId: 'food',
+			note: 'ข้าว',
+			occurredAt: new Date('2026-09-12T05:00:00Z'),
+			source: 'line' as const,
+			parsedBy: 'rule' as const,
+			fingerprint: 'a'.repeat(64)
+		};
+
+		expect(await insertTransactionIfUnique({ ...base, userId: userA })).not.toBeNull();
+		expect(await insertTransactionIfUnique({ ...base, userId: userA })).toBeNull();
+		expect(await insertTransactionIfUnique({ ...base, userId: userB })).not.toBeNull();
+	});
+
 	it('exports only the signed-in account across every owned table', async () => {
 		const accountA = await admit('Uaccount-a', async () => 'คนเอ');
 		const accountB = await admit('Uaccount-b', async () => 'คนบี');

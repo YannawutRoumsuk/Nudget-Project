@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	processEventOnce: vi.fn(), insertTransaction: vi.fn(), deleteLatestTransaction: vi.fn(),
+	processEventOnce: vi.fn(), insertTransaction: vi.fn(), insertTransactionIfUnique: vi.fn(), deleteLatestTransaction: vi.fn(),
 	getTotals: vi.fn(), getByCategory: vi.fn(), getPaymentMethodTotal: vi.fn(), parseMessage: vi.fn(), replyText: vi.fn(),
 	getPendingSlip: vi.fn(), replacePendingSlip: vi.fn(), updatePendingSlip: vi.fn(), deletePendingSlip: vi.fn(),
 	updateOwnedPendingSlip: vi.fn(), consumePendingSlip: vi.fn(), deleteOwnedPendingSlip: vi.fn(),
+	claimPendingSlipForSave: vi.fn(), releasePendingSlipSave: vi.fn(),
 	getMessageContent: vi.fn(), pushText: vi.fn(), replyQuickReplies: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
 	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
@@ -37,6 +38,8 @@ vi.mock('$lib/server/db/slips', () => ({
 	deletePendingSlip: mocks.deletePendingSlip,
 	updateOwnedPendingSlip: mocks.updateOwnedPendingSlip,
 	consumePendingSlip: mocks.consumePendingSlip,
+	claimPendingSlipForSave: mocks.claimPendingSlipForSave,
+	releasePendingSlipSave: mocks.releasePendingSlipSave,
 	deleteOwnedPendingSlip: mocks.deleteOwnedPendingSlip
 }));
 vi.mock('$lib/server/db/bills', () => ({ listBills: mocks.listBills, getUnpaidBillTotal: mocks.getUnpaidBillTotal }));
@@ -77,7 +80,7 @@ const pendingReady = {
 	id: 7, userId: owner.id, lineUserId: 'owner', messageId: 'image-1', status: 'ready' as const,
 	amount: '100.00', occurredAt: new Date('2026-09-01T05:00:00Z'), categoryId: 'other',
 	paymentMethod: 'bank' as const, note: 'ร้านตัวอย่าง', recipient: 'ร้านตัวอย่าง', reference: '',
-	ocrText: 'จำนวนเงิน 100.00 บาท', expiresAt: new Date('2099-01-01T00:00:00Z'),
+	ocrText: 'จำนวนเงิน 100.00 บาท', fingerprint: 'a'.repeat(64), expiresAt: new Date('2099-01-01T00:00:00Z'),
 	createdAt: new Date(), updatedAt: new Date()
 };
 const event: LineEvent = {
@@ -101,6 +104,7 @@ beforeEach(() => {
 	} });
 	mocks.processEventOnce.mockImplementation((_id, work) => work(executor));
 	mocks.insertTransaction.mockImplementation(async (tx) => ({ id: 1, ...tx }));
+	mocks.insertTransactionIfUnique.mockImplementation(async (tx) => ({ id: 1, ...tx }));
 	mocks.getPendingSlip.mockResolvedValue(null);
 	mocks.countFeedbackSince.mockResolvedValue(0);
 	mocks.claimPendingAction.mockResolvedValue(true);
@@ -108,6 +112,8 @@ beforeEach(() => {
 	mocks.createFeedback.mockImplementation(async (values) => ({ id: 5, createdAt: new Date(event.timestamp!), status: 'new', resolvedAt: null, ...values }));
 	mocks.updateOwnedPendingSlip.mockImplementation(async (_id, _userId, values) => ({ ...pendingReady, ...values }));
 	mocks.consumePendingSlip.mockResolvedValue(null);
+	mocks.claimPendingSlipForSave.mockResolvedValue(pendingReady);
+	mocks.releasePendingSlipSave.mockResolvedValue(pendingReady);
 	mocks.listBills.mockResolvedValue([]);
 	mocks.getUnpaidBillTotal.mockResolvedValue(0);
 	mocks.getMonthlyPlan.mockResolvedValue(null);
@@ -143,8 +149,20 @@ describe('LINE processing', () => {
 	it('records through the transaction executor using original send time', async () => {
 		await handleEvents([event]);
 		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!));
-		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ amount: '60.00', lineUserId: 'owner', userId: owner.id }), executor);
+		expect(mocks.insertTransactionIfUnique).toHaveBeenCalledWith(expect.objectContaining({ amount: '60.00', lineUserId: 'owner', userId: owner.id, fingerprint: expect.any(String) }), executor);
 		expect(mocks.replyText).toHaveBeenCalledOnce();
+	});
+	it('warns instead of saving a repeated text entry', async () => {
+		mocks.insertTransactionIfUnique.mockResolvedValue(null);
+		await handleEvents([event]);
+		expect(mocks.insertTransaction).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('บันทึกซ้ำ ข้าว 60'));
+	});
+	it('lets the user explicitly save a legitimate repeated text entry', async () => {
+		await handleEvents([{ ...event, message: { ...event.message!, text: 'บันทึกซ้ำ ข้าว 60' } }]);
+		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!));
+		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ rawText: 'ข้าว 60' }), executor);
+		expect(mocks.insertTransactionIfUnique).not.toHaveBeenCalled();
 	});
 	it('does not mutate or reply again for a committed duplicate', async () => {
 		mocks.processEventOnce.mockResolvedValue(null);
@@ -153,7 +171,7 @@ describe('LINE processing', () => {
 		expect(mocks.replyText).not.toHaveBeenCalled();
 	});
 	it('propagates storage failure and stops the batch before later commands', async () => {
-		mocks.insertTransaction.mockRejectedValue(new Error('offline'));
+		mocks.insertTransactionIfUnique.mockRejectedValue(new Error('offline'));
 		await expect(handleEvents([event, { ...event, webhookEventId: 'event-2' }])).rejects.toThrow('offline');
 		expect(mocks.processEventOnce).toHaveBeenCalledOnce();
 		expect(mocks.replyText).not.toHaveBeenCalled();
@@ -162,7 +180,7 @@ describe('LINE processing', () => {
 		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
 		mocks.replyText.mockRejectedValue(new Error('timeout'));
 		await expect(handleEvents([event])).resolves.toBeUndefined();
-		expect(mocks.insertTransaction).toHaveBeenCalledOnce();
+		expect(mocks.insertTransactionIfUnique).toHaveBeenCalledOnce();
 		log.mockRestore();
 	});
 	it('deduplicates undo in the same transaction as its deletion', async () => {
@@ -236,7 +254,7 @@ describe('LINE processing', () => {
 		mocks.admit.mockResolvedValue({ status: 'member', user: { id: 99, lineUserId: 'partner', displayName: '' } });
 		await handleEvents([{ ...event, source: { type: 'user', userId: 'partner' } }]);
 		expect(mocks.getPendingSlip).toHaveBeenCalledWith(99);
-		expect(mocks.insertTransaction).toHaveBeenCalledWith(
+		expect(mocks.insertTransactionIfUnique).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 99, lineUserId: 'partner' }),
 			executor
 		);
@@ -267,16 +285,42 @@ describe('LINE processing', () => {
 
 	it('saves a ready slip only after the save postback', async () => {
 		mocks.getPendingSlip.mockResolvedValue(pendingReady);
-		mocks.consumePendingSlip.mockResolvedValue(pendingReady);
 		await handleEvents([{
 			type: 'postback', replyToken: 'reply', webhookEventId: 'save-1',
 			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:7' }
 		}]);
-		expect(mocks.consumePendingSlip).toHaveBeenCalledWith(7, owner.id, executor);
-		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({
+		expect(mocks.claimPendingSlipForSave).toHaveBeenCalledWith(7, owner.id, executor);
+		expect(mocks.insertTransactionIfUnique).toHaveBeenCalledWith(expect.objectContaining({
 			userId: owner.id, amount: '100.00', categoryId: 'other', parsedBy: 'ocr'
 		}), executor);
+		expect(mocks.deleteOwnedPendingSlip).toHaveBeenCalledWith(7, owner.id, executor);
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('บันทึกแล้ว'));
+	});
+
+	it('keeps a duplicate slip draft and asks before saving it again', async () => {
+		mocks.getPendingSlip.mockResolvedValue(pendingReady);
+		mocks.insertTransactionIfUnique.mockResolvedValue(null);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'duplicate-slip',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:7' }
+		}]);
+		expect(mocks.releasePendingSlipSave).toHaveBeenCalledWith(7, owner.id, executor);
+		expect(mocks.deleteOwnedPendingSlip).not.toHaveBeenCalled();
+		expect(mocks.replyQuickReplies).toHaveBeenCalledWith(
+			'reply', expect.stringContaining('เคยถูกบันทึกแล้ว'),
+			expect.arrayContaining([expect.objectContaining({ data: 'slip:force-save:7' })])
+		);
+	});
+
+	it('saves a duplicate slip only after the explicit force action', async () => {
+		mocks.getPendingSlip.mockResolvedValue(pendingReady);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'force-slip',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:force-save:7' }
+		}]);
+		expect(mocks.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({ parsedBy: 'ocr' }), executor);
+		expect(mocks.insertTransactionIfUnique).not.toHaveBeenCalled();
+		expect(mocks.deleteOwnedPendingSlip).toHaveBeenCalledWith(7, owner.id, executor);
 	});
 
 	it('does not save a stale or already-consumed slip action', async () => {
@@ -285,7 +329,7 @@ describe('LINE processing', () => {
 			type: 'postback', replyToken: 'reply', webhookEventId: 'save-2',
 			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:7' }
 		}]);
-		expect(mocks.consumePendingSlip).not.toHaveBeenCalled();
+		expect(mocks.claimPendingSlipForSave).not.toHaveBeenCalled();
 		expect(mocks.insertTransaction).not.toHaveBeenCalled();
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('หมดเวลาแล้ว'));
 	});
@@ -296,7 +340,7 @@ describe('LINE processing', () => {
 			type: 'postback', replyToken: 'reply', webhookEventId: 'save-foreign',
 			source: { type: 'user', userId: 'owner' }, postback: { data: 'slip:save:99' }
 		}]);
-		expect(mocks.consumePendingSlip).not.toHaveBeenCalled();
+		expect(mocks.claimPendingSlipForSave).not.toHaveBeenCalled();
 		expect(mocks.insertTransaction).not.toHaveBeenCalled();
 	});
 
@@ -415,7 +459,7 @@ describe('after a slip could not be read', () => {
 		mocks.getPendingSlip.mockResolvedValue({ ...pendingReady, status: 'failed', amount: null, occurredAt: null, ocrText: '' });
 		await handleEvents([event]);
 		expect(mocks.deletePendingSlip).toHaveBeenCalledWith(owner.id, executor);
-		expect(mocks.insertTransaction).toHaveBeenCalledWith(
+		expect(mocks.insertTransactionIfUnique).toHaveBeenCalledWith(
 			expect.objectContaining({ parsedBy: 'rule', rawText: 'ข้าว 60' }),
 			executor
 		);

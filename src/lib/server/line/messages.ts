@@ -52,6 +52,33 @@ export function slipReviewActions(id: number) {
 	];
 }
 
+export function duplicateSlipText(slip: SlipReviewData): string {
+	return [
+		'⚠️ สลิปนี้เคยถูกบันทึกแล้ว',
+		'',
+		slipReviewText(slip),
+		'',
+		'ถ้าเป็นคนละรายการจริง กด “บันทึกอีกครั้ง”'
+	].join('\n');
+}
+
+export function duplicateSlipActions(id: number) {
+	return [
+		{ label: 'บันทึกอีกครั้ง', data: `slip:force-save:${id}` },
+		{ label: 'ยกเลิก', data: `slip:cancel:${id}` }
+	];
+}
+
+export function duplicateTextWarning(text: string): string {
+	const example = text.trim().slice(0, 180);
+	return [
+		'⚠️ รายการนี้เหมือนรายการที่เพิ่งบันทึก จึงยังไม่เพิ่มซ้ำ',
+		'',
+		'ถ้าเป็นคนละรายการจริง ให้พิมพ์:',
+		`บันทึกซ้ำ ${example}`
+	].join('\n');
+}
+
 function categoryLine(categoryId: string): string {
 	const category = getCategory(categoryId);
 	return category ? `${category.icon} ${category.nameTh}` : `📦 ${categoryId}`;
@@ -96,7 +123,14 @@ export function confirmNoteUpdated(tx: Transaction, note: string): string {
  * exactly what this feature exists to prevent, so the reply has to be checkable
  * at a glance.
  */
-export function confirmSavedMany(saved: Transaction[], skipped: string[]): string {
+export function confirmSavedMany(saved: Transaction[], skipped: string[], duplicates = 0): string {
+	if (saved.length === 0 && duplicates > 0 && skipped.length === 0) {
+		return [
+			`⚠️ พบ ${duplicates} รายการซ้ำ จึงยังไม่บันทึก`,
+			'',
+			'ถ้าเป็นคนละรายการจริง ให้เติม “บันทึกซ้ำ” ไว้หน้าข้อความเดิมแล้วส่งอีกครั้ง'
+		].join('\n');
+	}
 	const total = saved.reduce(
 		(sum, tx) => sum + (tx.kind === 'income' ? toNumber(tx.amount) : -toNumber(tx.amount)),
 		0
@@ -111,6 +145,10 @@ export function confirmSavedMany(saved: Transaction[], skipped: string[]): strin
 	if (skipped.length > 0) {
 		lines.push('', `⚠️ ข้าม ${skipped.length} บรรทัดที่อ่านไม่ออก`);
 		for (const line of skipped.slice(0, 3)) lines.push(`  "${line}"`);
+	}
+	if (duplicates > 0) {
+		lines.push('', `⚠️ กันไว้ ${duplicates} รายการที่เหมือนรายการเดิม`);
+		lines.push('ถ้าเป็นคนละรายการจริง ให้เติม “บันทึกซ้ำ” ไว้หน้าข้อความเดิม');
 	}
 	const uncertain = saved.filter((tx) => tx.categoryId === FALLBACK_CATEGORY[tx.kind]).length;
 	if (uncertain > 0) lines.push('', `ℹ️ ${uncertain} รายการเดาหมวดเป็น "อื่นๆ" — แก้ได้บนเว็บ`);
