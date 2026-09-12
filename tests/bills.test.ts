@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { billDueDate, billPeriod, validateBillSchedule } from '../src/lib/bills';
-import { bangkokDayKey } from '../src/lib/utils/date';
+import { bangkokDayKey, bangkokParts, fromBangkok } from '../src/lib/utils/date';
 
 const reference = new Date('2026-09-05T03:00:00Z');
 
@@ -16,5 +16,29 @@ describe('bill schedule', () => {
 		expect(validateBillSchedule('monthly', 15, null)).toBe(true);
 		expect(validateBillSchedule('monthly', 0, null)).toBe(false);
 		expect(validateBillSchedule('once', null, new Date('2026-09-20'))).toBe(true);
+	});
+	it('rejects each recurrence when its own field is the missing one', () => {
+		expect(validateBillSchedule('monthly', null, new Date('2026-09-20'))).toBe(false);
+		expect(validateBillSchedule('once', 15, null)).toBe(false);
+		expect(validateBillSchedule('monthly', 32, null)).toBe(false);
+	});
+});
+
+describe('due dates typed straight into a POST', () => {
+	// `Date.UTC` rolls 31 February into March rather than refusing it, so a due
+	// date has to survive being read back before it can be trusted.
+	const roundTrips = (raw: string) => {
+		const [year, month, day] = raw.split('-').map(Number);
+		const parts = bangkokParts(fromBangkok(year, month, day, 9));
+		return parts.year === year && parts.month === month && parts.day === day;
+	};
+
+	it('accepts a real day', () => {
+		expect(roundTrips('2026-09-20')).toBe(true);
+		expect(roundTrips('2028-02-29')).toBe(true);
+	});
+	it('refuses a day that does not exist', () => {
+		expect(roundTrips('2026-02-31')).toBe(false);
+		expect(roundTrips('2026-13-01')).toBe(false);
 	});
 });
