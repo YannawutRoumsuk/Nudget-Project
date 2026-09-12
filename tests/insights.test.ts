@@ -71,7 +71,7 @@ const usable = {
 describe('generateInsight', () => {
 	it('maps a well-formed answer onto an Insight', async () => {
 		modelReplies(usable);
-		const insight = await generateInsight(input);
+		const insight = await generateInsight(input, 7);
 		expect(insight?.headline).toBe(usable.headline);
 		expect(insight?.savings[0].monthlySaving).toBe(800);
 	});
@@ -100,31 +100,71 @@ describe('generateInsight', () => {
 				usable.savings[0]
 			]
 		});
-		const insight = await generateInsight(input);
+		const insight = await generateInsight(input, 7);
 		expect(insight?.savings.map((idea) => idea.monthlySaving)).toEqual([800]);
 	});
 
 	it('clamps text a model wrote past the space the page has for it', async () => {
 		modelReplies({ ...usable, headline: 'ก'.repeat(400), summary: 'ข'.repeat(900) });
-		const insight = await generateInsight(input);
+		const insight = await generateInsight(input, 7);
 		expect(insight!.headline.length).toBeLessThanOrEqual(80);
 		expect(insight!.summary.length).toBeLessThanOrEqual(400);
 	});
 
 	it('returns null when numbers arrive with no words around them', async () => {
 		modelReplies({ ...usable, observations: [], savings: [] });
-		expect(await generateInsight(input)).toBeNull();
+		expect(await generateInsight(input, 7)).toBeNull();
 	});
 
 	it('never calls the API when no provider is configured', async () => {
 		state.llm = { provider: 'none', apiKey: '', model: '' };
-		expect(await generateInsight(input)).toBeNull();
+		expect(await generateInsight(input, 7)).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('returns null on a refused request rather than throwing', async () => {
 		fetchMock.mockResolvedValue({ ok: false, status: 429, text: async () => 'slow down' });
-		await expect(generateInsight(input)).resolves.toBeNull();
+		await expect(generateInsight(input, 7)).resolves.toBeNull();
+	});
+
+	// A refused call still has to leave a trace, otherwise the metrics table
+	// would show a quiet month whenever the provider was the thing failing.
+	it('records a failed call with no tokens and a reason', async () => {
+		fetchMock.mockResolvedValue({ ok: false, status: 429, text: async () => 'slow down' });
+		await generateInsight(input, 7);
+		expect(recordLlmUsage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 7,
+				success: false,
+				inputTokens: 0,
+				outputTokens: 0,
+				errorCode: 'provider_error'
+			})
+		);
+	});
+
+	it('separates an unusable answer from an unreachable provider', async () => {
+		fetchMock.mockResolvedValue({
+			ok: true,
+			status: 200,
+			json: async () => ({
+				candidates: [{ content: { parts: [{ text: 'ขอโทษครับ' }] } }],
+				usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 12 }
+			}),
+			text: async () => ''
+		});
+		await generateInsight(input, 7);
+		// Those tokens were spent even though nothing usable came back, so they
+		// are counted rather than written off as zero.
+		expect(recordLlmUsage).toHaveBeenCalledWith(
+			expect.objectContaining({ success: false, inputTokens: 300, outputTokens: 12, errorCode: 'invalid_output' })
+		);
+	});
+
+	it('keeps the analysis when the metrics table refuses the row', async () => {
+		recordLlmUsage.mockRejectedValueOnce(new Error('metrics offline'));
+		modelReplies(usable);
+		expect((await generateInsight(input, 7))?.headline).toBe(usable.headline);
 	});
 
 	it('returns null when the answer is not JSON at all', async () => {
@@ -134,13 +174,13 @@ describe('generateInsight', () => {
 			json: async () => ({ candidates: [{ content: { parts: [{ text: 'ขอโทษครับ' }] } }] }),
 			text: async () => ''
 		});
-		await expect(generateInsight(input)).resolves.toBeNull();
+		await expect(generateInsight(input, 7)).resolves.toBeNull();
 	});
 
 	// The whole privacy and cost argument rests on this staying true.
 	it('puts only aggregates on the wire', async () => {
 		modelReplies(usable);
-		await generateInsight(input);
+		await generateInsight(input, 7);
 		const body = String(fetchMock.mock.calls[0][1].body);
 		expect(body).toContain('12000');
 		expect(body).toContain('ยอดใช้บัตรเครดิต: 3200');

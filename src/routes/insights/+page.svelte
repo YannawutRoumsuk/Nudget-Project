@@ -40,7 +40,22 @@
 	<StatFigure label="เงินที่เหลือ" value={data.input.savings} tone="in" />
 	<StatFigure label="ยอดบัตรเครดิต" value={data.input.creditCardSpent} tone="out" />
 	<StatFigure label="บิลที่ยังไม่จ่าย" value={data.input.unpaidBills} tone="out" />
-	<StatFigure label="งบที่เหลือ" value={data.input.remainingBudget ?? 0} tone={data.input.remainingBudget !== null && data.input.remainingBudget < 0 ? 'out' : 'neutral'} />
+	<!-- Without a monthly plan there is no budget to have anything left of, and a
+	     tile reading "0 บาท" would say the opposite of that. -->
+	{#if data.input.remainingBudget !== null}
+		<StatFigure
+			label="งบที่เหลือ"
+			value={data.input.remainingBudget}
+			tone={data.input.remainingBudget < 0 ? 'out' : 'neutral'}
+			caption="หลังกันเป้าเงินเก็บและบิล"
+		/>
+	{:else}
+		<div class="no-plan">
+			<p class="eyebrow">งบที่เหลือ</p>
+			<p>ยังไม่ได้ตั้งแผนเดือนนี้</p>
+			<a href="/plan?month={data.month.key}">ตั้งแผนเดือน</a>
+		</div>
+	{/if}
 </section>
 
 <section class="card facts">
@@ -225,6 +240,19 @@
 	}
 	.muted {
 		color: var(--ink-muted);
+	}
+	.no-plan {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 1.1rem 1.25rem 1.25rem;
+		border-left: 3px solid var(--rule-strong);
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+	}
+	.no-plan a {
+		color: var(--accent);
+		font-weight: 600;
 	}
 	.facts-meta {
 		color: var(--ink-muted);

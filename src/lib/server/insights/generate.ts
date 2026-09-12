@@ -79,7 +79,7 @@ interface ProviderResult {
  * has the charts either way and commentary is the part that is allowed to be
  * missing.
  */
-export async function generateInsight(input: InsightInput, userId?: number): Promise<Insight | null> {
+export async function generateInsight(input: InsightInput, userId: number): Promise<Insight | null> {
 	if (config.llm.provider === 'none') return null;
 
 	try {
@@ -100,14 +100,18 @@ export async function generateInsight(input: InsightInput, userId?: number): Pro
 	}
 }
 
+/**
+ * Metrics are best-effort, the analysis is not: a metrics table that refuses a
+ * row must not cost someone the paragraph they already paid for. `userId` is
+ * required rather than optional so a future caller cannot quietly stop counting.
+ */
 async function saveUsage(
-	userId: number | undefined,
+	userId: number,
 	success: boolean,
 	inputTokens: number,
 	outputTokens: number,
 	errorCode: string | null
 ): Promise<void> {
-	if (userId === undefined) return;
 	try {
 		await recordLlmUsage({
 			userId,

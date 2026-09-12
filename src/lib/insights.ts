@@ -1,4 +1,5 @@
 import { getCategory } from '$lib/categories';
+import { formatNumber } from '$lib/utils/money';
 
 /**
  * Presentation helpers for the month-over-month comparison. Pure on purpose:
@@ -124,7 +125,9 @@ export interface MonthlyFacts {
 export function buildMonthlyFacts(input: MonthlyFactsInput): MonthlyFacts {
 	const highlights: string[] = [];
 	const attention: string[] = [];
-	const money = (value: number) => Math.round(value).toLocaleString('th-TH');
+	// The same formatter the figures and the charts use, so a number quoted in a
+	// sentence cannot disagree with the identical number in a tile above it.
+	const money = (value: number) => formatNumber(Math.round(value));
 
 	if (input.income <= 0 && input.expense <= 0) {
 		return { status: 'ยังไม่มีข้อมูลพอสำหรับสรุปเดือนนี้', highlights, attention };
