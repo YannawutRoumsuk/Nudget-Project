@@ -39,7 +39,7 @@ describe('choosing a text provider', () => {
 		expect(config.llm.apiKey).toBe('sk-or-x');
 		expect(config.llm.model).toBe('google/gemini-2.5-flash-lite');
 		expect(config.llm.helpModel).toBe('google/gemini-3.8-flash');
-		expect(config.llm.helpDailyLimit).toBe(5);
+		expect(config.llm.helpDailyLimit).toBe(3);
 	});
 
 	it('never hands one provider the key belonging to another', async () => {
