@@ -12,6 +12,13 @@ export interface CategoryDef {
 	keywords: string[];
 }
 
+/** Kept outside day-to-day spending averages because these costs are committed. */
+export const FIXED_EXPENSE_CATEGORY_IDS = ['rent', 'bills'] as const;
+
+export function isFixedExpenseCategory(id: string): boolean {
+	return (FIXED_EXPENSE_CATEGORY_IDS as readonly string[]).includes(id);
+}
+
 export const EXPENSE_CATEGORIES: CategoryDef[] = [
 	{
 		id: 'food',
@@ -53,6 +60,15 @@ export const EXPENSE_CATEGORIES: CategoryDef[] = [
 		]
 	},
 	{
+		id: 'rent',
+		nameTh: 'ค่าเช่า/ที่อยู่อาศัย',
+		nameEn: 'Rent & housing',
+		kind: 'expense',
+		icon: '🏡',
+		color: 'oklch(66% 0.12 75)',
+		keywords: ['ค่าเช่า','เช่าบ้าน','ค่าหอ','หอพัก','ค่าบ้าน','ผ่อนบ้าน','สินเชื่อบ้าน','mortgage','rent']
+	},
+	{
 		id: 'bills',
 		nameTh: 'บิล/ค่าบริการ',
 		nameEn: 'Bills',
@@ -60,9 +76,9 @@ export const EXPENSE_CATEGORIES: CategoryDef[] = [
 		icon: '🧾',
 		color: 'oklch(68% 0.13 200)',
 		keywords: [
-			'ค่าน้ำ','ค่าไฟ','ค่าเน็ต','เน็ต','อินเทอร์เน็ต','ค่าโทรศัพท์','ค่าเช่า','เช่าบ้าน','ค่าหอ','หอพัก',
+			'ค่าน้ำ','ค่าไฟ','ค่าเน็ต','เน็ต','อินเทอร์เน็ต','ค่าโทรศัพท์',
 			'ประกัน','ผ่อน','บิล','ค่าบริการ','ค่าส่วนกลาง','true','ais','dtac','netflix','spotify','youtube',
-			'icloud','subscription','บิลบัตร','rent','bill'
+			'icloud','subscription','บิลบัตร','bill'
 		]
 	},
 	{

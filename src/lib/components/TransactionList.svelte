@@ -13,7 +13,7 @@
 	}
 
 	let { items, deletable = false, editable = false, emptyText = 'ยังไม่มีรายการ' }: Props = $props();
-	const methodLabel = { bank: 'โอน/บัญชี', cash: 'เงินสด', credit_card: 'บัตรเครดิต', wallet: 'วอลเล็ต' } as const;
+	const methodLabel = { bank: 'โอน/บัญชี', cash: 'เงินสด', credit_card: 'บัตรเครดิต', shopee_paylater: 'Shopee PayLater', wallet: 'วอลเล็ต' } as const;
 
 	interface DayGroup {
 		key: string;

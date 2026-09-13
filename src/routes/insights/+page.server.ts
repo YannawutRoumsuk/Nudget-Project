@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { buildBreakdown, fillDailySeries } from '$lib/analytics';
+import { isFixedExpenseCategory } from '$lib/categories';
 import { resolveMonthSelection } from '$lib/month';
 import { isOwner } from '$lib/server/access';
 import { requireUserId } from '$lib/server/auth';
@@ -32,7 +33,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const input = await buildInsightInput(userId, month.key, now);
 	const [expenseSlices, series, used, comparison] = await Promise.all([
 		getByCategory(userId, month, 'expense'),
-		getDailySeries(userId, month),
+		getDailySeries(userId, month, { excludeFixed: true }),
 		llmCallsUsed(userId, now),
 		buildMultiMonthComparison(userId, month, input, baseline)
 	]);
@@ -66,7 +67,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		// someone has when they have just added a key and nothing changed.
 		llmSetup: isOwner(locals.lineUserId ?? '') ? describeLlmSetup() : null,
 		analysesLeft: Math.max(0, INSIGHT_DAILY_LIMIT - used),
-		breakdown: buildBreakdown(expenseSlices),
+		breakdown: buildBreakdown(expenseSlices.filter((slice) => !isFixedExpenseCategory(slice.categoryId))),
+		fixedBreakdown: buildBreakdown(expenseSlices.filter((slice) => isFixedExpenseCategory(slice.categoryId))),
 		days: fillDailySeries(series, month.from, addDays(month.to, -1), bangkokDayKey(now)),
 		isCurrentMonth: month.key === bangkokMonthKey(now)
 	};
@@ -108,7 +110,7 @@ export const actions: Actions = {
 		// The call is already paid for, so a failed cache write must not turn into
 		// a 500 that loses the paragraph. Worst case it is written again next time.
 		try {
-			await saveInsight(userId, selection.key, fingerprintInput(input), insight, config.llm.model);
+			await saveInsight(userId, selection.key, fingerprintInput(input), insight, config.llm.insightModel);
 		} catch (error) {
 			console.error('[insights] could not store the analysis:', error);
 		}

@@ -11,7 +11,7 @@ import type { DbExecutor } from './queries';
  * rather than per request. Ten is far past what reading one's own months takes
  * and still bounds what a stuck reload loop can spend.
  */
-export const INSIGHT_DAILY_LIMIT = 10;
+export const INSIGHT_DAILY_LIMIT = 3;
 
 /**
  * The stored analysis for exactly these numbers. A payload that no longer

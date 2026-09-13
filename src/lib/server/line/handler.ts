@@ -53,6 +53,7 @@ import {
 } from '$lib/utils/date';
 import { formatNumber, toNumber } from '$lib/utils/money';
 import { getDisplayName, pushText, replyQuickReplies, replyText } from './client';
+import { buildMonthlyLineSummary } from '../monthly-summary';
 import {
 	confirmInstallment,
 	confirmNoteUpdated,
@@ -186,6 +187,19 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		return;
 	}
 	const command = matchCommand(text);
+	// Monthly AI runs outside the ledger transaction so a provider call never
+	// occupies a database connection. Claiming the webhook first prevents a LINE retry from spending twice.
+	if (!pending && (command === 'month' || command === 'summary')) {
+		if (!(await claimEvent(eventId))) return;
+		try {
+			const monthly = await buildMonthlyLineSummary(user.id, bangkokMonthKey(sentAt), sentAt, { claimQuota: true });
+			await sendQuietly(() => replyText(event.replyToken as string, monthly.text));
+		} catch (error) {
+			console.error('[line] monthly summary failed:', error);
+			await sendQuietly(() => replyText(event.replyToken as string, 'ตอนนี้สรุปเดือนให้ไม่ได้ ลองพิมพ์ “เดือนนี้” ใหม่อีกครั้งได้'));
+		}
+		return;
+	}
 	const override = !pending ? duplicateOverride(text) : null;
 	const entryText = override?.text ?? text;
 	const entryCommand = matchCommand(entryText);

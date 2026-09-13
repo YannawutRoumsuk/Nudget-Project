@@ -118,7 +118,9 @@ export interface MonthlyFactsInput {
 	savings: number;
 	savingsRate: number | null;
 	creditCardSpent: number;
+	payLaterSpent: number;
 	unpaidBills: number;
+	nextMonthBills: number;
 	remainingBudget: number | null;
 	previousExpense: number;
 	plan: { savingsGoal: number } | null;
@@ -159,8 +161,14 @@ export function buildMonthlyFacts(input: MonthlyFactsInput): MonthlyFacts {
 	if (input.creditCardSpent > 0) {
 		attention.push(`ยอดที่บันทึกผ่านบัตรเครดิต ${money(input.creditCardSpent)} บาท`);
 	}
+	if (input.payLaterSpent > 0) {
+		attention.push(`ยอดที่บันทึกผ่าน Shopee PayLater ${money(input.payLaterSpent)} บาท`);
+	}
 	if (input.unpaidBills > 0) {
 		attention.push(`ยังมีบิลรอจ่าย ${money(input.unpaidBills)} บาท`);
+	}
+	if (input.nextMonthBills > 0) {
+		attention.push(`เดือนหน้ามีภาระที่รู้แล้ว ${money(input.nextMonthBills)} บาท`);
 	}
 	if (input.remainingBudget !== null) {
 		if (input.remainingBudget >= 0) highlights.push(`งบหลังหักเป้าเงินเก็บและบิลยังเหลือ ${money(input.remainingBudget)} บาท`);

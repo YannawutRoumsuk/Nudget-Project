@@ -177,6 +177,11 @@ describe('parseByRules', () => {
 		expect(tx).toMatchObject({ amount: 85, categoryId: 'food', note: 'กาแฟ', paymentMethod: 'credit_card' });
 	});
 
+	it('detects Shopee PayLater as a deferred payment method', () => {
+		const { tx } = parse('ช้อปปี้เพย์เลเตอร์ เสื้อ 450');
+		expect(tx).toMatchObject({ amount: 450, paymentMethod: 'shopee_paylater' });
+	});
+
 	it('parses income with a plus prefix', () => {
 		const { tx } = parse('+เงินเดือน 30000');
 		expect(tx).toMatchObject({ kind: 'income', amount: 30000, categoryId: 'salary' });
@@ -189,7 +194,7 @@ describe('parseByRules', () => {
 
 	it('parses an expense verb prefix', () => {
 		const { tx } = parse('จ่ายค่าเช่า 8500');
-		expect(tx).toMatchObject({ kind: 'expense', amount: 8500, categoryId: 'bills' });
+		expect(tx).toMatchObject({ kind: 'expense', amount: 8500, categoryId: 'rent' });
 	});
 
 	it('keeps the date out of the note', () => {

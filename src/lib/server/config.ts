@@ -22,6 +22,13 @@ const DEFAULT_HELP_MODELS: Record<Exclude<LlmProvider, 'none'>, string> = {
 	openrouter: 'google/gemini-3.8-flash'
 };
 
+/** Monthly advice needs stronger judgement than the terse transaction parser. */
+const DEFAULT_INSIGHT_MODELS: Record<Exclude<LlmProvider, 'none'>, string> = {
+	anthropic: 'claude-haiku-4-5-20251001',
+	gemini: 'gemini-3.8-flash',
+	openrouter: 'google/gemini-3.8-flash'
+};
+
 function resolveLlm() {
 	const declared = (env.LLM_PROVIDER ?? '').trim().toLowerCase();
 	const anthropicKey = (env.ANTHROPIC_API_KEY ?? '').trim();
@@ -58,6 +65,7 @@ function resolveLlm() {
 			apiKey: '',
 			model: '',
 			helpModel: '',
+			insightModel: '',
 			parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
 			helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 3, 0, 50),
 			helpMaxInputChars: boundedInteger(env.LLM_HELP_MAX_INPUT_CHARS, 600, 50, 1_500),
@@ -74,12 +82,16 @@ function resolveLlm() {
 	const helpModel =
 		(env.LLM_HELP_MODEL ?? '').trim() || (provider === 'none' ? '' : DEFAULT_HELP_MODELS[provider]);
 	if (helpModel) warnOnModelShape('LLM_HELP_MODEL', helpModel, provider === 'openrouter');
+	const insightModel =
+		(env.LLM_INSIGHT_MODEL ?? '').trim() || (provider === 'none' ? '' : DEFAULT_INSIGHT_MODELS[provider]);
+	if (insightModel) warnOnModelShape('LLM_INSIGHT_MODEL', insightModel, provider === 'openrouter');
 
 	return {
 		provider,
 		apiKey,
 		model,
 		helpModel,
+		insightModel,
 		parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
 		helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 3, 0, 50),
 		helpMaxInputChars: boundedInteger(env.LLM_HELP_MAX_INPUT_CHARS, 600, 50, 1_500),
@@ -238,6 +250,10 @@ export function describeLlmSetup(): string {
 		config.llm.provider === 'none'
 			? 'help=off'
 			: `help=${config.llm.provider}:${config.llm.helpModel}`;
+	const insights =
+		config.llm.provider === 'none'
+			? 'insights=off'
+			: `insights=${config.llm.provider}:${config.llm.insightModel}`;
 	// `OCR_PROVIDER=tesseract` wins over any usable transport, so it is checked
 	// first: reporting the transport there would claim images leave the machine
 	// when they never do, which is the opposite of what this line is for.
@@ -247,7 +263,7 @@ export function describeLlmSetup(): string {
 			: config.ocr.vision.transport === 'none'
 				? 'slips=tesseract (local, no vision key)'
 				: `slips=${config.ocr.vision.transport}:${config.ocr.vision.model}`;
-	return `[config] ${parser} ${help} ${slips}`;
+	return `[config] ${parser} ${help} ${insights} ${slips}`;
 }
 
 /** The allowlist is the only thing standing between a stranger and the ledger. */

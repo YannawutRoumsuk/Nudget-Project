@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { buildSpendingProfile } from '$lib/analytics';
 import { resolveMonthSelection } from '$lib/month';
 import { getUnpaidBillTotal } from '$lib/server/db/bills';
 import { getMonthlyPlan } from '$lib/server/db/plans';
@@ -27,11 +28,25 @@ export interface InsightInput {
 	savingsRate: number | null;
 	/** Expenses recorded against a credit card in this month. */
 	creditCardSpent: number;
+	/** Expenses recorded against Shopee PayLater in this month. */
+	payLaterSpent: number;
+	/** Day-to-day spending after rent and bill payments are removed. */
+	regularExpense: number;
+	fixedExpense: number;
+	foodExpense: number;
+	transportExpense: number;
+	otherExpense: number;
+	regularDailyAverage: number;
+	foodDailyAverage: number;
+	transportDailyAverage: number;
+	otherDailyAverage: number;
 	previousIncome: number;
 	previousExpense: number;
 	/** Expense categories, this month vs last, biggest current first. */
 	categories: CategoryChange[];
 	unpaidBills: number;
+	/** Bills already known to be due in the following month. */
+	nextMonthBills: number;
 	plan: {
 		expectedIncome: number;
 		savingsGoal: number;
@@ -67,13 +82,15 @@ export async function buildInsightInput(
 	// Both months go out at once: the comparison is the whole point of the
 	// analysis, so waiting for this month before asking for the last one would
 	// double the latency for no gain.
-	const [totals, slices, series, unpaidBills, plan, creditCardSpent, previousTotals, previousSlices] = await Promise.all([
+	const [totals, slices, series, unpaidBills, nextMonthBills, plan, creditCardSpent, payLaterSpent, previousTotals, previousSlices] = await Promise.all([
 		getTotals(userId, range),
 		getByCategory(userId, range, 'expense'),
-		getDailySeries(userId, range),
+		getDailySeries(userId, range, { excludeFixed: true }),
 		getUnpaidBillTotal(userId, selection.from),
+		getUnpaidBillTotal(userId, addMonths(selection.from, 1)),
 		getMonthlyPlan(userId, selection.key),
 		getPaymentMethodTotal(userId, range, 'credit_card'),
+		getPaymentMethodTotal(userId, range, 'shopee_paylater'),
 		getTotals(userId, previousRange, undefined, true),
 		getByCategory(userId, previousRange, 'expense', undefined, true)
 	]);
@@ -82,6 +99,7 @@ export async function buildInsightInput(
 	const expense = baht(totals.expense);
 	const net = baht(totals.net);
 	const savings = Math.max(0, net);
+	const profile = buildSpendingProfile(slices, selection.elapsedDays);
 	const normalizedPlan = plan
 		? {
 				expectedIncome: toNumber(plan.expectedIncome),
@@ -101,10 +119,21 @@ export async function buildInsightInput(
 		savings,
 		savingsRate: income > 0 ? baht((savings / income) * 100) : null,
 		creditCardSpent: baht(creditCardSpent),
+		payLaterSpent: baht(payLaterSpent),
+		regularExpense: baht(profile.regular),
+		fixedExpense: baht(profile.fixed),
+		foodExpense: baht(profile.food),
+		transportExpense: baht(profile.transport),
+		otherExpense: baht(profile.other),
+		regularDailyAverage: baht(profile.regularPerDay),
+		foodDailyAverage: baht(profile.foodPerDay),
+		transportDailyAverage: baht(profile.transportPerDay),
+		otherDailyAverage: baht(profile.otherPerDay),
 		previousIncome: baht(previousTotals.income),
 		previousExpense: baht(previousTotals.expense),
 		categories: toCategoryChanges(slices, previousSlices),
 		unpaidBills: baht(unpaidBills),
+		nextMonthBills: baht(nextMonthBills),
 		plan: normalizedPlan,
 		remainingBudget: normalizedPlan
 			? baht(normalizedPlan.expectedIncome - normalizedPlan.savingsGoal - expense - unpaidBills)
@@ -137,9 +166,20 @@ export function fingerprintInput(input: InsightInput): string {
 		input.savings,
 		input.savingsRate ?? '-',
 		input.creditCardSpent,
+		input.payLaterSpent,
+		input.regularExpense,
+		input.fixedExpense,
+		input.foodExpense,
+		input.transportExpense,
+		input.otherExpense,
+		input.regularDailyAverage,
+		input.foodDailyAverage,
+		input.transportDailyAverage,
+		input.otherDailyAverage,
 		input.previousIncome,
 		input.previousExpense,
 		input.unpaidBills,
+		input.nextMonthBills,
 		input.remainingBudget ?? '-',
 		input.daysElapsed,
 		input.daysInMonth,

@@ -7,7 +7,7 @@ import { bangkokParts, fromBangkok } from '$lib/utils/date';
 import type { BillRecurrence, PaymentMethod } from '$lib/server/db/schema';
 import type { Actions, PageServerLoad } from './$types';
 
-const METHODS: PaymentMethod[] = ['bank', 'cash', 'credit_card', 'wallet'];
+const METHODS: PaymentMethod[] = ['bank', 'cash', 'credit_card', 'shopee_paylater', 'wallet'];
 
 /**
  * `Date.UTC` rolls an impossible day forward instead of refusing it, so

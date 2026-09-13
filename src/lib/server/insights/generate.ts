@@ -94,7 +94,7 @@ const INSIGHT_JSON_SCHEMA = {
 };
 
 const TIMEOUT_MS = 20_000;
-const MAX_TOKENS = 600;
+const MAX_TOKENS = 1600;
 
 interface ProviderResult {
 	text: string;
@@ -150,7 +150,7 @@ async function saveUsage(
 			userId,
 			workflow: 'insights',
 			provider: config.llm.provider,
-			model: config.llm.model,
+			model: config.llm.insightModel,
 			inputTokens,
 			outputTokens,
 			success,
@@ -189,6 +189,9 @@ function buildPrompt(input: InsightInput): string {
 		'',
 		'Savings rules:',
 		'- Tie every idea to one of the expense categories listed below, by its Thai name.',
+		'- Rent and bill payments are committed fixed costs. Do not label them wasteful or suggest skipping payment.',
+		'- Focus savings ideas on regular spending. Call spending discretionary only when the category total or change supports it.',
+		'- Mention next-month obligations when they could make cash flow tight.',
 		'- The figure must be realistic against what that category actually costs this month.',
 		'- Never propose saving more than the category currently costs.',
 		'- "ใช้จ่ายให้น้อยลง" is not an idea. Name the change and the amount.',
@@ -208,9 +211,16 @@ function buildFacts(input: InsightInput): string {
 		`คงเหลือ: ${input.net} บาท`,
 		`อัตราออม: ${input.savingsRate === null ? 'คำนวณไม่ได้เพราะไม่มีรายรับ' : `${input.savingsRate}%`} (${input.savings} บาท)`,
 		`ยอดใช้บัตรเครดิต: ${input.creditCardSpent} บาท`,
+		`ยอดใช้ Shopee PayLater: ${input.payLaterSpent} บาท`,
+		`เงินใช้ชีวิต (ไม่รวมค่าเช่าและบิล): ${input.regularExpense} บาท เฉลี่ย ${input.regularDailyAverage} บาท/วัน`,
+		`ค่าเช่าและบิลที่จ่ายแล้ว: ${input.fixedExpense} บาท`,
+		`อาหาร: ${input.foodExpense} บาท เฉลี่ย ${input.foodDailyAverage} บาท/วัน`,
+		`เดินทาง: ${input.transportExpense} บาท เฉลี่ย ${input.transportDailyAverage} บาท/วัน`,
+		`รายจ่ายใช้งานอื่น: ${input.otherExpense} บาท เฉลี่ย ${input.otherDailyAverage} บาท/วัน`,
 		`งบที่เหลือหลังกันเงินออมและบิล: ${input.remainingBudget === null ? 'ยังไม่ได้ตั้งแผน' : `${input.remainingBudget} บาท`}`,
 		`จำนวนรายการที่บันทึก: ${input.transactionCount}`,
 		`บิลที่ยังไม่จ่ายในเดือนนี้: ${input.unpaidBills} บาท`,
+		`บิลที่รู้แล้วว่าต้องจ่ายเดือนหน้า: ${input.nextMonthBills} บาท`,
 		input.busiestDay
 			? `วันที่ใช้จ่ายมากที่สุด: ${input.busiestDay.day} จำนวน ${input.busiestDay.expense} บาท`
 			: 'วันที่ใช้จ่ายมากที่สุด: ไม่มีรายจ่ายในเดือนนี้',
@@ -251,7 +261,7 @@ function toInsight(raw: string, input: InsightInput): Insight | null {
 			.map((line) => clamp(line, MAX_OBSERVATION))
 			.filter(Boolean)
 			.slice(0, MAX_OBSERVATIONS),
-		savings: toSavings(parsed.data.savings, input.expense)
+		savings: toSavings(parsed.data.savings, input.regularExpense)
 	};
 
 	const insight = insightSchema.safeParse(candidate);
@@ -319,7 +329,7 @@ async function callAnthropic(prompt: string): Promise<ProviderResult | null> {
 		'x-api-key': config.llm.apiKey,
 		'anthropic-version': '2023-06-01'
 	}, JSON.stringify({
-		model: config.llm.model,
+		model: config.llm.insightModel,
 		max_tokens: MAX_TOKENS,
 		messages: [{ role: 'user', content: prompt }]
 	}));
@@ -340,7 +350,7 @@ async function callAnthropic(prompt: string): Promise<ProviderResult | null> {
 }
 
 async function callGemini(prompt: string): Promise<ProviderResult | null> {
-	const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.llm.model}:generateContent`;
+	const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.llm.insightModel}:generateContent`;
 	const res = await request(url, {
 		'content-type': 'application/json',
 		'x-goog-api-key': config.llm.apiKey
@@ -379,11 +389,12 @@ async function callGateway(prompt: string): Promise<ProviderResult | null> {
 	try {
 		return await callOpenRouter({
 			apiKey: config.llm.apiKey,
-			model: config.llm.model,
+			model: config.llm.insightModel,
 			prompt,
 			maxOutputTokens: MAX_TOKENS,
 			timeoutMs: TIMEOUT_MS,
-			jsonSchema: { name: 'monthly_review', schema: INSIGHT_JSON_SCHEMA }
+			jsonSchema: { name: 'monthly_review', schema: INSIGHT_JSON_SCHEMA },
+			reasoning: { effort: 'minimal', exclude: true }
 		});
 	} catch (error) {
 		console.error('[insights] OpenRouter refused:', error instanceof Error ? error.message : 'unknown');

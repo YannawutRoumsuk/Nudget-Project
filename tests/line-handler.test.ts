@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
 	claimEvent: vi.fn(), answerAiHelp: vi.fn(),
+	buildMonthlyLineSummary: vi.fn(),
 	updateLatestTransactionNote: vi.fn(),
 	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, llm: { helpDailyLimit: 3 }, publicBaseUrl: 'https://nudget.example' }
 }));
@@ -33,6 +34,7 @@ vi.mock('$lib/server/db/feedback', () => ({
 }));
 vi.mock('$lib/server/db/queries', () => mocks);
 vi.mock('$lib/server/help/generate', () => ({ answerAiHelp: mocks.answerAiHelp }));
+vi.mock('$lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: mocks.buildMonthlyLineSummary }));
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
 	replacePendingSlip: mocks.replacePendingSlip,
@@ -63,8 +65,10 @@ vi.mock('$lib/server/parser', () => ({
 					? 'feedback'
 					: text === 'ช่วยเหลือ'
 						? 'aiHelp'
-						: text === 'วิธีใช้'
+					: text === 'วิธีใช้'
 							? 'help'
+							: text === 'สรุปเดือนนี้'
+								? 'month'
 					: text === 'มีอะไรใหม่'
 						? 'release'
 						: null
@@ -118,6 +122,7 @@ beforeEach(() => {
 	mocks.claimPendingAction.mockResolvedValue(true);
 	mocks.claimEvent.mockResolvedValue(true);
 	mocks.answerAiHelp.mockResolvedValue({ text: 'เปิดเว็บแล้วกดหน้าแผนเดือน', remaining: 9 });
+	mocks.buildMonthlyLineSummary.mockResolvedValue({ text: 'สรุปพร้อม AI', hasData: true, usedAi: true });
 	mocks.processPendingSlip.mockResolvedValue(true);
 	mocks.createFeedback.mockImplementation(async (values) => ({ id: 5, createdAt: new Date(event.timestamp!), status: 'new', resolvedAt: null, ...values }));
 	mocks.updateOwnedPendingSlip.mockImplementation(async (_id, _userId, values) => ({ ...pendingReady, ...values }));
@@ -161,6 +166,13 @@ describe('LINE processing', () => {
 		expect(mocks.parseMessage).toHaveBeenCalledWith('ข้าว 60', new Date(event.timestamp!), { userId: owner.id });
 		expect(mocks.insertTransactionIfUnique).toHaveBeenCalledWith(expect.objectContaining({ amount: '60.00', lineUserId: 'owner', userId: owner.id, fingerprint: expect.any(String) }), executor);
 		expect(mocks.replyText).toHaveBeenCalledOnce();
+	});
+	it('builds the monthly AI summary outside the ledger transaction', async () => {
+		await handleEvents([{ ...event, message: { ...event.message!, text: 'สรุปเดือนนี้' } }]);
+		expect(mocks.claimEvent).toHaveBeenCalledWith('event-1');
+		expect(mocks.buildMonthlyLineSummary).toHaveBeenCalledWith(42, '2026-09', new Date(event.timestamp!), { claimQuota: true });
+		expect(mocks.processEventOnce).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', 'สรุปพร้อม AI');
 	});
 	it('warns instead of saving a repeated text entry', async () => {
 		mocks.insertTransactionIfUnique.mockResolvedValue(null);

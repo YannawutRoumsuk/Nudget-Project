@@ -19,7 +19,7 @@
 	const insight = $derived(form?.insight ?? data.analysis?.insight ?? null);
 	const staleNotice = $derived(!form?.insight && data.analysis?.stale === true);
 	const hasData = $derived(data.input.transactionCount > 0);
-	const perDay = $derived(data.input.daysElapsed > 0 ? data.input.expense / data.input.daysElapsed : 0);
+	const perDay = $derived(data.input.regularDailyAverage);
 	const savingsTotal = $derived(insight ? totalSavings(insight.savings) : 0);
 	const facts = $derived(buildMonthlyFacts(data.input));
 	const metricChange = (delta: number, percent: number | null) => {
@@ -43,9 +43,13 @@
 <section class="figures">
 	<StatFigure label="รายรับ" value={data.input.income} tone="in" />
 	<StatFigure label="จ่ายไปแล้ว" value={data.input.expense} tone="out" emphasis />
+	<StatFigure label="เงินใช้ชีวิต" value={data.input.regularExpense} tone="out" />
+	<StatFigure label="ค่าเช่าและบิล" value={data.input.fixedExpense} tone="neutral" />
 	<StatFigure label="เงินที่เหลือ" value={data.input.savings} tone="in" />
 	<StatFigure label="ยอดบัตรเครดิต" value={data.input.creditCardSpent} tone="out" />
+	<StatFigure label="Shopee PayLater" value={data.input.payLaterSpent} tone="out" />
 	<StatFigure label="บิลที่ยังไม่จ่าย" value={data.input.unpaidBills} tone="out" />
+	<StatFigure label="ภาระเดือนหน้า" value={data.input.nextMonthBills} tone="out" />
 	<!-- Without a monthly plan there is no budget to have anything left of, and a
 	     tile reading "0 บาท" would say the opposite of that. -->
 	{#if data.input.remainingBudget !== null}
@@ -68,8 +72,13 @@
 	<p class="eyebrow">ข้อเท็จจริงจากข้อมูล</p>
 	<h2>{facts.status}</h2>
 	<p class="facts-meta">
-		เฉลี่ยใช้จ่าย {formatNumber(Math.round(perDay))} บาท/วัน
+		เงินใช้ชีวิตเฉลี่ย {formatNumber(Math.round(perDay))} บาท/วัน
 		{#if data.input.savingsRate !== null} · อัตราออม {Math.round(data.input.savingsRate)}%{/if}
+	</p>
+	<p class="facts-meta">
+		อาหาร {formatNumber(data.input.foodExpense)} บาท ({formatNumber(Math.round(data.input.foodDailyAverage))}/วัน)
+		· เดินทาง {formatNumber(data.input.transportExpense)} บาท ({formatNumber(Math.round(data.input.transportDailyAverage))}/วัน)
+		· อื่นๆ {formatNumber(data.input.otherExpense)} บาท ({formatNumber(Math.round(data.input.otherDailyAverage))}/วัน)
 	</p>
 	{#if facts.highlights.length > 0}
 		<ul>{#each facts.highlights as item}<li>{item}</li>{/each}</ul>
@@ -254,14 +263,21 @@
 
 <div class="charts">
 	<section class="card">
-		<h2>สัดส่วนรายจ่าย</h2>
-		<CategoryDonut rows={data.breakdown} total={data.input.expense} />
+		<h2>สัดส่วนเงินใช้ชีวิต</h2>
+		<CategoryDonut rows={data.breakdown} total={data.input.regularExpense} />
 	</section>
 	<section class="card">
-		<h2>รายวัน</h2>
+		<h2>เงินใช้ชีวิตรายวัน</h2>
 		<DailyChart days={data.days} average={perDay} />
 	</section>
 </div>
+
+{#if data.fixedBreakdown.length > 0}
+	<section class="card">
+		<h2>ค่าเช่าและบิลที่จ่ายแล้ว</h2>
+		<CategoryDonut rows={data.fixedBreakdown} total={data.input.fixedExpense} />
+	</section>
+{/if}
 
 <style>
 	.head {

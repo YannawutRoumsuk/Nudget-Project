@@ -13,6 +13,7 @@
 		bank: 'โอน/บัญชี',
 		cash: 'เงินสด',
 		credit_card: 'บัตรเครดิต',
+		shopee_paylater: 'Shopee PayLater',
 		wallet: 'วอลเล็ต'
 	};
 
@@ -60,7 +61,7 @@
 			<p class="due">
 				{bill.recurrence === 'monthly' ? 'ทุกเดือน' : 'ครั้งเดียว'} · {due
 					? `ครบ ${formatThaiShortDate(due)}`
-					: 'ยังไม่กำหนดวัน'} · {METHOD_LABELS[bill.paymentMethod] ?? bill.paymentMethod}
+					: 'ยังไม่กำหนดวัน'} · {METHOD_LABELS[bill.paymentMethod] ?? bill.paymentMethod}{bill.sourceTransactionId ? ' · สร้างอัตโนมัติ' : ''}
 			</p>
 			<div class="bill-actions">
 				<form method="POST" action={bill.paid ? '?/unpaid' : '?/paid'} class="paid-form">

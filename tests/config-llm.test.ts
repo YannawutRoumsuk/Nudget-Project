@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const BASE_ENV = { ...process.env };
 
 async function loadModule(env: Record<string, string | undefined>) {
-	for (const key of ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'LLM_PROVIDER', 'LLM_MODEL', 'LLM_HELP_MODEL', 'OCR_API_PROVIDER', 'OCR_MODEL', 'OCR_PROVIDER']) {
+	for (const key of ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'LLM_PROVIDER', 'LLM_MODEL', 'LLM_HELP_MODEL', 'LLM_INSIGHT_MODEL', 'OCR_API_PROVIDER', 'OCR_MODEL', 'OCR_PROVIDER']) {
 		delete process.env[key];
 	}
 	Object.assign(process.env, env);
@@ -19,7 +19,7 @@ async function loadModule(env: Record<string, string | undefined>) {
 }
 
 async function loadConfig(env: Record<string, string | undefined>) {
-	for (const key of ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'LLM_PROVIDER', 'LLM_MODEL', 'LLM_HELP_MODEL', 'OCR_API_PROVIDER', 'OCR_MODEL']) {
+	for (const key of ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'LLM_PROVIDER', 'LLM_MODEL', 'LLM_HELP_MODEL', 'LLM_INSIGHT_MODEL', 'OCR_API_PROVIDER', 'OCR_MODEL']) {
 		delete process.env[key];
 	}
 	Object.assign(process.env, env);
@@ -39,6 +39,7 @@ describe('choosing a text provider', () => {
 		expect(config.llm.apiKey).toBe('sk-or-x');
 		expect(config.llm.model).toBe('google/gemini-2.5-flash-lite');
 		expect(config.llm.helpModel).toBe('google/gemini-3.8-flash');
+		expect(config.llm.insightModel).toBe('google/gemini-3.8-flash');
 		expect(config.llm.helpDailyLimit).toBe(3);
 	});
 
@@ -131,7 +132,7 @@ describe('saying out loud what resolved', () => {
 			OCR_API_PROVIDER: 'openrouter'
 		});
 		expect(describeLlmSetup()).toBe(
-			'[config] parser=openrouter:google/gemini-2.5-flash-lite help=openrouter:google/gemini-3.8-flash slips=openrouter:google/gemini-2.5-flash'
+			'[config] parser=openrouter:google/gemini-2.5-flash-lite help=openrouter:google/gemini-3.8-flash insights=openrouter:google/gemini-3.8-flash slips=openrouter:google/gemini-2.5-flash'
 		);
 	});
 

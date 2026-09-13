@@ -29,7 +29,9 @@ describe('buildMonthlyFacts', () => {
 			savings: 12000,
 			savingsRate: 40,
 			creditCardSpent: 4000,
+			payLaterSpent: 800,
 			unpaidBills: 1500,
+			nextMonthBills: 4800,
 			remainingBudget: 2500,
 			previousExpense: 20000,
 			plan: { savingsGoal: 10000 }
@@ -50,7 +52,9 @@ describe('buildMonthlyFacts', () => {
 			savings: 0,
 			savingsRate: null,
 			creditCardSpent: 0,
+			payLaterSpent: 0,
 			unpaidBills: 0,
+			nextMonthBills: 0,
 			remainingBudget: null,
 			previousExpense: 0,
 			plan: null
