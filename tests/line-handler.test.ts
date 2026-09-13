@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
 	claimEvent: vi.fn(), answerAiHelp: vi.fn(),
 	updateLatestTransactionNote: vi.fn(),
-	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, llm: { helpDailyLimit: 5 }, publicBaseUrl: 'https://nudget.example' }
+	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, llm: { helpDailyLimit: 3 }, publicBaseUrl: 'https://nudget.example' }
 }));
 vi.mock('$lib/server/config', () => ({ config: mocks.config }));
 vi.mock('$lib/server/access', () => ({
@@ -471,7 +471,7 @@ describe('AI help in chat', () => {
 		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'aiHelp' });
 		await say('ช่วยเหลือ');
 		expect(mocks.setPendingAction).toHaveBeenCalledWith(owner.id, 'ai_help', executor);
-		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringMatching(/5 ครั้ง.*บันทึก/s));
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringMatching(/3 ครั้ง.*บันทึก/s));
 	});
 
 	it('sends every message in active mode to AI without parsing it as money', async () => {
