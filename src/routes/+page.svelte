@@ -10,6 +10,7 @@
 	import { RANGE_OPTIONS } from '$lib/ranges';
 	import { formatNumber } from '$lib/utils/money';
 	import type { ActionData, PageData } from './$types';
+	type DailyPoint = { day: string; expense: number; income: number; isToday: boolean };
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -19,7 +20,7 @@
 
 	const biggestDay = $derived(
 		data.days.reduce(
-			(best, day) => (day.expense > best.expense ? day : best),
+			(best: DailyPoint, day: DailyPoint) => (day.expense > best.expense ? day : best),
 			{ day: '', expense: 0, income: 0, isToday: false }
 		)
 	);

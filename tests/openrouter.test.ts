@@ -63,6 +63,13 @@ describe('callOpenRouter', () => {
 		expect(body.response_format).toBeUndefined();
 	});
 
+	it('passes optional reasoning controls only for callers that request them', async () => {
+		answers('เปิดเว็บได้จากเมนูด้านล่าง');
+		await callOpenRouter({ ...call, reasoning: { effort: 'minimal', exclude: true } });
+
+		expect(sentBody().reasoning).toEqual({ effort: 'minimal', exclude: true });
+	});
+
 	it('reads token counters from usage, where this gateway puts them', async () => {
 		answers('{"ok":true}', { prompt_tokens: 412, completion_tokens: 58 });
 		const result = await callOpenRouter(call);

@@ -15,6 +15,13 @@ const DEFAULT_MODELS: Record<Exclude<LlmProvider, 'none'>, string> = {
 	openrouter: 'google/gemini-2.5-flash-lite'
 };
 
+/** Help is conversational and needs a stronger model than the cheap parser. */
+const DEFAULT_HELP_MODELS: Record<Exclude<LlmProvider, 'none'>, string> = {
+	anthropic: 'claude-haiku-4-5-20251001',
+	gemini: 'gemini-3.8-flash',
+	openrouter: 'google/gemini-3.8-flash'
+};
+
 function resolveLlm() {
 	const declared = (env.LLM_PROVIDER ?? '').trim().toLowerCase();
 	const anthropicKey = (env.ANTHROPIC_API_KEY ?? '').trim();
@@ -50,10 +57,11 @@ function resolveLlm() {
 			provider: 'none' as const,
 			apiKey: '',
 			model: '',
+			helpModel: '',
 			parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
-			helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 10, 0, 50),
+			helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 5, 0, 50),
 			helpMaxInputChars: boundedInteger(env.LLM_HELP_MAX_INPUT_CHARS, 600, 50, 1_500),
-			helpMaxOutputTokens: boundedInteger(env.LLM_HELP_MAX_OUTPUT_TOKENS, 300, 80, 600),
+			helpMaxOutputTokens: boundedInteger(env.LLM_HELP_MAX_OUTPUT_TOKENS, 1200, 80, 2000),
 			maxInputChars: boundedInteger(env.LLM_PARSER_MAX_INPUT_CHARS, 500, 50, 2_000),
 			maxOutputTokens: boundedInteger(env.LLM_PARSER_MAX_OUTPUT_TOKENS, 150, 50, 400),
 			timeoutMs: boundedInteger(env.LLM_TIMEOUT_MS, 8_000, 1_000, 30_000)
@@ -63,15 +71,19 @@ function resolveLlm() {
 	const model =
 		(env.LLM_MODEL ?? '').trim() || (provider === 'none' ? '' : DEFAULT_MODELS[provider]);
 	if (model) warnOnModelShape('LLM_MODEL', model, provider === 'openrouter');
+	const helpModel =
+		(env.LLM_HELP_MODEL ?? '').trim() || (provider === 'none' ? '' : DEFAULT_HELP_MODELS[provider]);
+	if (helpModel) warnOnModelShape('LLM_HELP_MODEL', helpModel, provider === 'openrouter');
 
 	return {
 		provider,
 		apiKey,
 		model,
+		helpModel,
 		parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
-		helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 10, 0, 50),
+		helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 5, 0, 50),
 		helpMaxInputChars: boundedInteger(env.LLM_HELP_MAX_INPUT_CHARS, 600, 50, 1_500),
-		helpMaxOutputTokens: boundedInteger(env.LLM_HELP_MAX_OUTPUT_TOKENS, 300, 80, 600),
+		helpMaxOutputTokens: boundedInteger(env.LLM_HELP_MAX_OUTPUT_TOKENS, 1200, 80, 2000),
 		maxInputChars: boundedInteger(env.LLM_PARSER_MAX_INPUT_CHARS, 500, 50, 2_000),
 		maxOutputTokens: boundedInteger(env.LLM_PARSER_MAX_OUTPUT_TOKENS, 150, 50, 400),
 		timeoutMs: boundedInteger(env.LLM_TIMEOUT_MS, 8_000, 1_000, 30_000)
@@ -222,6 +234,10 @@ export function describeLlmSetup(): string {
 		config.llm.provider === 'none'
 			? 'parser=off (no usable key)'
 			: `parser=${config.llm.provider}:${config.llm.model}`;
+	const help =
+		config.llm.provider === 'none'
+			? 'help=off'
+			: `help=${config.llm.provider}:${config.llm.helpModel}`;
 	// `OCR_PROVIDER=tesseract` wins over any usable transport, so it is checked
 	// first: reporting the transport there would claim images leave the machine
 	// when they never do, which is the opposite of what this line is for.
@@ -231,7 +247,7 @@ export function describeLlmSetup(): string {
 			: config.ocr.vision.transport === 'none'
 				? 'slips=tesseract (local, no vision key)'
 				: `slips=${config.ocr.vision.transport}:${config.ocr.vision.model}`;
-	return `[config] ${parser} ${slips}`;
+	return `[config] ${parser} ${help} ${slips}`;
 }
 
 /** The allowlist is the only thing standing between a stranger and the ledger. */

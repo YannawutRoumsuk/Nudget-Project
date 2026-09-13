@@ -19,6 +19,11 @@ export interface OpenRouterCall {
 	prompt: string;
 	maxOutputTokens: number;
 	timeoutMs: number;
+	/** Optional reasoning control for models that otherwise spend the output budget thinking. */
+	reasoning?: {
+		effort: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+		exclude?: boolean;
+	};
 	/** Base64 JPEG for a vision call; omitted for a text-only one. */
 	imageBase64?: string;
 	/**
@@ -73,6 +78,7 @@ export async function callOpenRouter(call: OpenRouterCall): Promise<OpenRouterRe
 						}
 					}
 				: {}),
+			...(call.reasoning ? { reasoning: call.reasoning } : {}),
 			temperature: 0,
 			// Bounds the bill even on a model that thinks before answering, because
 			// reasoning tokens are billed as output.
