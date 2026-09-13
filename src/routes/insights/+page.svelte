@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { categoryLabel } from '$lib/categories';
 	import CategoryDonut from '$lib/components/CategoryDonut.svelte';
 	import DailyChart from '$lib/components/DailyChart.svelte';
 	import MonthCompare from '$lib/components/MonthCompare.svelte';
@@ -21,6 +22,11 @@
 	const perDay = $derived(data.input.daysElapsed > 0 ? data.input.expense / data.input.daysElapsed : 0);
 	const savingsTotal = $derived(insight ? totalSavings(insight.savings) : 0);
 	const facts = $derived(buildMonthlyFacts(data.input));
+	const metricChange = (delta: number, percent: number | null) => {
+		if (Math.abs(delta) < 1) return 'เท่าเดิม';
+		const direction = delta > 0 ? 'เพิ่ม' : 'ลด';
+		return `${direction} ${formatNumber(Math.abs(delta))} บาท${percent === null ? '' : ` (${Math.round(Math.abs(percent))}%)`}`;
+	};
 </script>
 
 <svelte:head>
@@ -160,8 +166,90 @@
 </section>
 
 <section class="card">
-	<h2>เทียบกับ{data.previousLabel}</h2>
-	<MonthCompare categories={data.input.categories} previousLabel={data.previousLabel} />
+	<div class="compare-head">
+		<div>
+			<p class="eyebrow">เปรียบเทียบหลายเดือน</p>
+			<h2>เทียบกับ{data.comparison.label}</h2>
+		</div>
+		<form method="GET" class="compare-controls">
+			<input type="hidden" name="month" value={data.month.key} />
+			<label>ฐานเปรียบเทียบ
+				<select name="baseline" value={data.comparison.kind}>
+					<option value="previous">เดือนก่อน</option>
+					<option value="average3">เฉลี่ย 3 เดือนก่อน</option>
+					<option value="yearAgo">เดือนเดียวกันปีก่อน</option>
+				</select>
+			</label>
+			<label>เรียงหมวดตาม
+				<select name="sort" value={data.comparisonSort}>
+					<option value="amount">จำนวนเงิน</option>
+					<option value="percent">เปอร์เซ็นต์</option>
+				</select>
+			</label>
+			<button type="submit">ดูผล</button>
+		</form>
+	</div>
+	<p class="baseline-note">ช่วงฐาน {data.comparison.periodLabel} · รายการที่ทำเครื่องหมายว่า “รายการพิเศษ” จะไม่รวมในฐาน</p>
+	{#if data.comparison.availableMonths < data.comparison.totalMonths}
+		<p class="sample-warning">ฐานนี้มีข้อมูลเพียง {data.comparison.availableMonths} จาก {data.comparison.totalMonths} เดือน จึงควรดูแนวโน้มอย่างระมัดระวัง</p>
+	{/if}
+	<div class="scroller metric-table">
+		<table>
+			<thead><tr><th>ตัวเลข</th><th class="num">เดือนนี้</th><th class="num">ฐาน</th><th>เปลี่ยนไป</th></tr></thead>
+			<tbody>
+				{#each data.comparison.metrics as metric (metric.id)}
+					<tr>
+						<th>{metric.label}</th>
+						<td class="num">{formatNumber(metric.current)}</td>
+						<td class="num muted">{formatNumber(metric.baseline)}</td>
+						<td>{metricChange(metric.delta, metric.percent)}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
+	<h3>หมวดที่เปลี่ยนมากที่สุดตาม{data.comparisonSort === 'percent' ? 'เปอร์เซ็นต์' : 'จำนวนเงิน'}</h3>
+	<MonthCompare categories={data.comparison.categories} previousLabel={data.comparison.label} sort={data.comparisonSort} />
+</section>
+
+<section class="card anomalies">
+	<p class="eyebrow">รายการมูลค่าสูงผิดปกติ</p>
+	<h2>เทียบกับรายการหมวดเดียวกันใน 3 เดือนก่อน</h2>
+	<p class="baseline-note">เกณฑ์คือค่าที่สูงกว่า max(2×ค่ากลาง, Q3 + 1.5×IQR) และต้องมีอย่างน้อย 5 รายการต่อหมวด รายการที่ซ่อนหรือทำเป็นรายการพิเศษจะไม่แสดงซ้ำ</p>
+	{#if data.comparison.anomalies.length > 0}
+		<ul>
+			{#each data.comparison.anomalies as item (item.id)}
+				<li>
+					<div>
+						<strong>{categoryLabel(item.categoryId)} · {formatNumber(item.amount)} บาท</strong>
+						<p>{formatThaiShortDate(item.occurredAt)}{item.note ? ` · ${item.note}` : ''}</p>
+						<small>สูงกว่าค่ากลาง {item.ratio} เท่า · ค่ากลาง {formatNumber(item.median)} บาท · เกณฑ์ {formatNumber(item.upperFence)} บาท · ฐาน {item.sampleSize} รายการ</small>
+					</div>
+					<div class="anomaly-actions">
+						<form method="POST" action="?/markSpecial">
+							<input type="hidden" name="id" value={item.id} />
+							<input type="hidden" name="month" value={data.month.key} />
+							<input type="hidden" name="baseline" value={data.comparison.kind} />
+							<input type="hidden" name="sort" value={data.comparisonSort} />
+							<button type="submit" class="secondary">เป็นรายการพิเศษ</button>
+						</form>
+						<form method="POST" action="?/dismissAnomaly">
+							<input type="hidden" name="id" value={item.id} />
+							<input type="hidden" name="month" value={data.month.key} />
+							<input type="hidden" name="baseline" value={data.comparison.kind} />
+							<input type="hidden" name="sort" value={data.comparisonSort} />
+							<button type="submit">รับทราบ</button>
+						</form>
+					</div>
+				</li>
+			{/each}
+		</ul>
+	{:else}
+		<p class="muted">ยังไม่พบรายการที่สูงกว่าพฤติกรรมเดิมอย่างชัดเจน</p>
+	{/if}
+	{#if data.comparison.insufficientCategoryLabels.length > 0}
+		<p class="sample-warning">ข้อมูลยังไม่พอสำหรับหมวด: {data.comparison.insufficientCategoryLabels.join(', ')}</p>
+	{/if}
 </section>
 
 <div class="charts">
@@ -200,6 +288,50 @@
 		padding: 1.1rem;
 		margin-bottom: var(--stack);
 	}
+	.compare-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 1rem;
+	}
+	.compare-controls {
+		display: flex;
+		align-items: end;
+		gap: 0.55rem;
+	}
+	.compare-controls label {
+		display: grid;
+		gap: 0.25rem;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+	}
+	.compare-controls select {
+		padding: 0.55rem;
+		border: 1px solid var(--rule-strong);
+		border-radius: var(--radius-sm);
+		background: var(--paper-raised);
+		color: var(--ink);
+	}
+	.baseline-note, .sample-warning {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		margin-bottom: 0.75rem;
+	}
+	.sample-warning {
+		padding: 0.55rem;
+		border-radius: var(--radius-sm);
+		background: var(--paper-sunken);
+		color: var(--out);
+	}
+	.scroller { overflow-x: auto; }
+	.metric-table table { width: 100%; min-width: 32rem; border-collapse: collapse; font-size: var(--text-sm); }
+	.metric-table th, .metric-table td { padding: 0.55rem; border-bottom: 1px solid var(--rule); text-align: left; }
+	.metric-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+	.anomalies > ul { list-style: none; padding: 0; display: grid; gap: 0.65rem; }
+	.anomalies > ul > li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.8rem; border: 1px solid var(--rule); border-radius: var(--radius); }
+	.anomalies p, .anomalies small { color: var(--ink-muted); }
+	.anomaly-actions { display: flex; align-items: center; gap: 0.4rem; }
+	button.secondary { background: var(--paper-sunken); color: var(--ink); border: 1px solid var(--rule-strong); }
 	.analysis-head {
 		display: flex;
 		justify-content: space-between;
@@ -344,6 +476,10 @@
 		.charts {
 			grid-template-columns: 1fr;
 		}
+		.compare-head, .compare-controls, .anomalies > ul > li { flex-direction: column; }
+		.compare-controls { align-items: stretch; width: 100%; }
+		.anomaly-actions { align-self: stretch; }
+		.anomaly-actions form, .anomaly-actions button { flex: 1; }
 	}
 	@media (max-width: 480px) {
 		.analysis-head {

@@ -19,6 +19,10 @@
 	<label class="wide">รายละเอียด<input name="note" value={data.item.note} /></label>
 	<label>วันที่<input name="date" type="date" value={dateValue} required /></label>
 	<label>เวลา<input name="time" type="time" value={timeValue} required /></label>
+	<label class="wide check">
+		<input name="excludeFromBaseline" type="checkbox" checked={data.item.excludeFromBaseline} />
+		<span>รายการพิเศษ — ไม่นำไปคำนวณฐานเปรียบเทียบเดือนถัดไป</span>
+	</label>
 	<div class="actions"><a href="/transactions">ยกเลิก</a><button type="submit">บันทึกการแก้ไข</button></div>
 </form>
 
@@ -27,6 +31,7 @@
 	.form-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;padding:1.25rem;max-width:46rem}
 	label{display:grid;gap:.35rem;font-size:var(--text-sm);font-weight:600}.wide,.actions,.error{grid-column:1/-1}
 	input,select{width:100%;padding:.7rem;border:1px solid var(--rule-strong);border-radius:var(--radius);background:var(--paper-raised)}
+	.check{display:flex;grid-template-columns:none;align-items:center;gap:.65rem;font-weight:500}.check input{width:auto}.check span{color:var(--ink-muted)}
 	.actions{display:flex;align-items:center;justify-content:flex-end;gap:1rem}.actions a{color:var(--ink-muted)}
 	button{padding:.65rem 1rem;border:0;border-radius:var(--radius);background:var(--ink);color:var(--paper-raised);cursor:pointer}.error{color:var(--out)}
 	@media(max-width:600px){.form-card{grid-template-columns:1fr}.wide,.actions,.error{grid-column:1}}

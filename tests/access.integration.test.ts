@@ -120,6 +120,26 @@ suite('membership against a real database', async () => {
 		expect(await insertTransactionIfUnique({ ...base, userId: userB })).not.toBeNull();
 	});
 
+	it('excludes marked purchases only from the owner comparison baseline', async () => {
+		const accountA = await admit('Ubaseline-a');
+		const accountB = await admit('Ubaseline-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		const [ordinary, special, otherOwner] = await db.insert(transactions).values([
+			{ userId: userA, kind: 'expense', amount: '60.00', categoryId: 'food', note: 'ข้าว', occurredAt: new Date('2026-09-01T05:00:00Z'), source: 'web', parsedBy: 'manual' },
+			{ userId: userA, kind: 'expense', amount: '1000.00', categoryId: 'food', note: 'งานพิเศษ', occurredAt: new Date('2026-09-02T05:00:00Z'), source: 'web', parsedBy: 'manual', excludeFromBaseline: true },
+			{ userId: userB, kind: 'expense', amount: '9000.00', categoryId: 'food', note: 'ของคนอื่น', occurredAt: new Date('2026-09-03T05:00:00Z'), source: 'web', parsedBy: 'manual' }
+		]).returning();
+		const { getTotals, updateTransaction } = await import('../src/lib/server/db/queries');
+		const range = { from: new Date('2026-08-31T17:00:00Z'), to: new Date('2026-09-30T17:00:00Z') };
+
+		expect((await getTotals(userA, range)).expense).toBe(1060);
+		expect((await getTotals(userA, range, undefined, true)).expense).toBe(60);
+		expect(await updateTransaction(otherOwner.id, userA, { anomalyDismissed: true })).toBeNull();
+		expect((await updateTransaction(ordinary.id, userA, { anomalyDismissed: true }))?.anomalyDismissed).toBe(true);
+		expect(special.excludeFromBaseline).toBe(true);
+	});
+
 	it('exports only the signed-in account across every owned table', async () => {
 		const accountA = await admit('Uaccount-a', async () => 'คนเอ');
 		const accountB = await admit('Uaccount-b', async () => 'คนบี');

@@ -50,8 +50,13 @@ const BANGKOK_DAY = sql`to_char(${transactions.occurredAt} AT TIME ZONE 'Asia/Ba
  * The owner filter belongs in the same helper as the date window so that adding
  * a new aggregate cannot accidentally read across tenants.
  */
-function ownedInRange(userId: number, { from, to }: Range) {
-	return and(eq(transactions.userId, userId), gte(transactions.occurredAt, from), lt(transactions.occurredAt, to));
+function ownedInRange(userId: number, { from, to }: Range, excludeMarked = false) {
+	return and(
+		eq(transactions.userId, userId),
+		gte(transactions.occurredAt, from),
+		lt(transactions.occurredAt, to),
+		excludeMarked ? eq(transactions.excludeFromBaseline, false) : undefined
+	);
 }
 
 export async function insertTransaction(tx: NewTransaction, executor: DbExecutor = db): Promise<Transaction> {
@@ -95,7 +100,7 @@ export async function getTransaction(id: number, userId: number): Promise<Transa
 export async function updateTransaction(
 	id: number,
 	userId: number,
-	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod'>>
+	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod' | 'excludeFromBaseline' | 'anomalyDismissed'>>
 ): Promise<Transaction | null> {
 	const [row] = await db
 		.update(transactions)
@@ -142,7 +147,7 @@ export async function updateLatestTransactionNote(
 	return updated ?? null;
 }
 
-export async function getTotals(userId: number, range: Range, executor: DbExecutor = db): Promise<Totals> {
+export async function getTotals(userId: number, range: Range, executor: DbExecutor = db, excludeMarked = false): Promise<Totals> {
 	const rows = await executor
 		.select({
 			kind: transactions.kind,
@@ -150,7 +155,7 @@ export async function getTotals(userId: number, range: Range, executor: DbExecut
 			count: sql<string>`count(*)`
 		})
 		.from(transactions)
-		.where(ownedInRange(userId, range))
+		.where(ownedInRange(userId, range, excludeMarked))
 		.groupBy(transactions.kind);
 
 	const totals: Totals = { income: 0, expense: 0, net: 0, count: 0 };
@@ -164,14 +169,14 @@ export async function getTotals(userId: number, range: Range, executor: DbExecut
 	return totals;
 }
 
-export async function getPaymentMethodTotal(userId: number, range: Range, paymentMethod: PaymentMethod, executor: DbExecutor = db): Promise<number> {
+export async function getPaymentMethodTotal(userId: number, range: Range, paymentMethod: PaymentMethod, executor: DbExecutor = db, excludeMarked = false): Promise<number> {
 	const [row] = await executor.select({ total: sql<string>`coalesce(sum(${transactions.amount}), 0)` })
 		.from(transactions)
-		.where(and(ownedInRange(userId, range), eq(transactions.kind, 'expense'), eq(transactions.paymentMethod, paymentMethod)));
+		.where(and(ownedInRange(userId, range, excludeMarked), eq(transactions.kind, 'expense'), eq(transactions.paymentMethod, paymentMethod)));
 	return toNumber(row?.total ?? 0);
 }
 
-export async function getByCategory(userId: number, range: Range, kind: TxKind, executor: DbExecutor = db): Promise<CategorySlice[]> {
+export async function getByCategory(userId: number, range: Range, kind: TxKind, executor: DbExecutor = db, excludeMarked = false): Promise<CategorySlice[]> {
 	const rows = await executor
 		.select({
 			categoryId: transactions.categoryId,
@@ -179,7 +184,7 @@ export async function getByCategory(userId: number, range: Range, kind: TxKind, 
 			count: sql<string>`count(*)`
 		})
 		.from(transactions)
-		.where(and(ownedInRange(userId, range), eq(transactions.kind, kind)))
+		.where(and(ownedInRange(userId, range, excludeMarked), eq(transactions.kind, kind)))
 		.groupBy(transactions.categoryId)
 		.orderBy(desc(sql`sum(${transactions.amount})`));
 
@@ -215,9 +220,9 @@ export async function getDailySeries(userId: number, range: Range): Promise<DayP
 export async function listTransactions(
 	userId: number,
 	range: Range,
-	options: { limit?: number; kind?: TxKind; categoryId?: string } = {}
+	options: { limit?: number; kind?: TxKind; categoryId?: string; excludeMarked?: boolean } = {}
 ): Promise<Transaction[]> {
-	const filters = [ownedInRange(userId, range)];
+	const filters = [ownedInRange(userId, range, options.excludeMarked)];
 	if (options.kind) filters.push(eq(transactions.kind, options.kind));
 	if (options.categoryId) filters.push(eq(transactions.categoryId, options.categoryId));
 

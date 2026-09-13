@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { buildComparison, type ComparisonSource } from '$lib/insights';
+	import { buildComparison, type ComparisonSort, type ComparisonSource } from '$lib/insights';
 	import { formatNumber } from '$lib/utils/money';
 
-	let { categories, previousLabel }: { categories: ComparisonSource[]; previousLabel: string } =
+	let { categories, previousLabel, sort = 'amount' }: { categories: ComparisonSource[]; previousLabel: string; sort?: ComparisonSort } =
 		$props();
 
-	const rows = $derived(buildComparison(categories));
+	const rows = $derived(buildComparison(categories, sort));
 </script>
 
 {#if rows.length === 0}

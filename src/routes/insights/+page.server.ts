@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { buildBreakdown, fillDailySeries } from '$lib/analytics';
 import { resolveMonthSelection } from '$lib/month';
 import { isOwner } from '$lib/server/access';
@@ -11,9 +11,11 @@ import {
 	saveInsight
 } from '$lib/server/db/insights';
 import { claimLlmCall, llmCallsUsed, releaseLlmCall } from '$lib/server/db/quota';
-import { getByCategory, getDailySeries } from '$lib/server/db/queries';
+import { getByCategory, getDailySeries, updateTransaction } from '$lib/server/db/queries';
 import { buildInsightInput, fingerprintInput, generateInsight } from '$lib/server/insights';
-import { addDays, addMonths, bangkokDayKey, bangkokMonthKey, formatThaiMonthYear } from '$lib/utils/date';
+import { buildMultiMonthComparison, resolveBaselineKind } from '$lib/server/insights/comparison';
+import type { ComparisonSort } from '$lib/insights';
+import { addDays, bangkokDayKey, bangkokMonthKey } from '$lib/utils/date';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -25,14 +27,14 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = requireUserId(locals);
 	const now = new Date();
 	const month = resolveMonthSelection(url.searchParams.get('month'), now);
-	const previousStart = addMonths(month.from, -1);
-	const previous = { id: 'previous', label: formatThaiMonthYear(previousStart), from: previousStart, to: month.from };
-
-	const [input, expenseSlices, series, used] = await Promise.all([
-		buildInsightInput(userId, month.key, now),
+	const baseline = resolveBaselineKind(url.searchParams.get('baseline'));
+	const comparisonSort: ComparisonSort = url.searchParams.get('sort') === 'percent' ? 'percent' : 'amount';
+	const input = await buildInsightInput(userId, month.key, now);
+	const [expenseSlices, series, used, comparison] = await Promise.all([
 		getByCategory(userId, month, 'expense'),
 		getDailySeries(userId, month),
-		llmCallsUsed(userId, now)
+		llmCallsUsed(userId, now),
+		buildMultiMonthComparison(userId, month, input, baseline)
 	]);
 
 	const fingerprint = fingerprintInput(input);
@@ -46,8 +48,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	return {
 		month,
-		previousLabel: previous.label,
 		input,
+		comparison,
+		comparisonSort,
 		fingerprint,
 		analysis: stored
 			? {
@@ -110,5 +113,31 @@ export const actions: Actions = {
 			console.error('[insights] could not store the analysis:', error);
 		}
 		return { insight };
+	},
+	dismissAnomaly: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id) || id <= 0) return fail(400, { message: 'รายการไม่ถูกต้อง' });
+		const updated = await updateTransaction(id, requireUserId(locals), { anomalyDismissed: true });
+		if (!updated) return fail(404, { message: 'ไม่พบรายการนี้' });
+		redirect(303, comparisonUrl(form));
+	},
+	markSpecial: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id) || id <= 0) return fail(400, { message: 'รายการไม่ถูกต้อง' });
+		const updated = await updateTransaction(id, requireUserId(locals), {
+			excludeFromBaseline: true,
+			anomalyDismissed: true
+		});
+		if (!updated) return fail(404, { message: 'ไม่พบรายการนี้' });
+		redirect(303, comparisonUrl(form));
 	}
 };
+
+function comparisonUrl(form: FormData): string {
+	const month = resolveMonthSelection(String(form.get('month') ?? '')).key;
+	const baseline = resolveBaselineKind(String(form.get('baseline') ?? ''));
+	const sort: ComparisonSort = form.get('sort') === 'percent' ? 'percent' : 'amount';
+	return `/insights?month=${encodeURIComponent(month)}&baseline=${baseline}&sort=${sort}`;
+}

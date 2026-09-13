@@ -1,0 +1,2 @@
+ALTER TABLE "transactions" ADD COLUMN "exclude_from_baseline" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "transactions" ADD COLUMN "anomaly_dismissed" boolean DEFAULT false NOT NULL;

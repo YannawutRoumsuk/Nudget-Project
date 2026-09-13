@@ -123,6 +123,10 @@ export const transactions = pgTable(
 		lineUserId: text('line_user_id'),
 		/** Opaque source signature. Unique only inside one user's ledger. */
 		fingerprint: varchar('fingerprint', { length: 64 }),
+		/** Omit this purchase from future comparison baselines without deleting it. */
+		excludeFromBaseline: boolean('exclude_from_baseline').notNull().default(false),
+		/** The owner has acknowledged this statistical flag. */
+		anomalyDismissed: boolean('anomaly_dismissed').notNull().default(false),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => [
