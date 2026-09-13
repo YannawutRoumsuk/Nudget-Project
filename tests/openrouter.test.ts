@@ -60,7 +60,7 @@ describe('callOpenRouter', () => {
 		expect(body.model).toBe('google/gemini-2.5-flash-lite');
 		expect(body.messages).toEqual([{ role: 'user', content: 'สวัสดี' }]);
 		expect(body.max_tokens).toBe(150);
-		expect(body.response_format).toEqual({ type: 'json_object' });
+		expect(body.response_format).toBeUndefined();
 	});
 
 	it('reads token counters from usage, where this gateway puts them', async () => {
@@ -161,9 +161,9 @@ describe('asking for an exact shape', () => {
 		expect(nested.additionalProperties).toBe(false);
 	});
 
-	it('still asks only for an object when the caller has no schema', async () => {
+	it('allows plain text when the caller has no schema', async () => {
 		answers('{"ok":true}');
 		await callOpenRouter(call);
-		expect(sentBody().response_format).toEqual({ type: 'json_object' });
+		expect(sentBody().response_format).toBeUndefined();
 	});
 });

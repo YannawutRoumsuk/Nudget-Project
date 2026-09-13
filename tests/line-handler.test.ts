@@ -10,8 +10,9 @@ const mocks = vi.hoisted(() => ({
 	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
+	claimEvent: vi.fn(), answerAiHelp: vi.fn(),
 	updateLatestTransactionNote: vi.fn(),
-	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, publicBaseUrl: 'https://nudget.example' }
+	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, llm: { helpDailyLimit: 10 }, publicBaseUrl: 'https://nudget.example' }
 }));
 vi.mock('$lib/server/config', () => ({ config: mocks.config }));
 vi.mock('$lib/server/access', () => ({
@@ -31,6 +32,7 @@ vi.mock('$lib/server/db/feedback', () => ({
 	countFeedbackSince: mocks.countFeedbackSince
 }));
 vi.mock('$lib/server/db/queries', () => mocks);
+vi.mock('$lib/server/help/generate', () => ({ answerAiHelp: mocks.answerAiHelp }));
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
 	replacePendingSlip: mocks.replacePendingSlip,
@@ -59,6 +61,10 @@ vi.mock('$lib/server/parser', () => ({
 				? 'members'
 				: text === 'ฟีดแบ็ก'
 					? 'feedback'
+					: text === 'ช่วยเหลือ'
+						? 'aiHelp'
+						: text === 'วิธีใช้'
+							? 'help'
 					: text === 'มีอะไรใหม่'
 						? 'release'
 						: null
@@ -76,6 +82,7 @@ const executor = {};
 const owner = { id: 42, lineUserId: 'owner', displayName: '', pendingAction: null, pendingActionAt: null };
 /** The same person, mid-way through sending feedback. */
 const awaitingFeedback = { ...owner, pendingAction: 'feedback', pendingActionAt: new Date(Date.parse('2026-09-01T16:58:00Z')) };
+const awaitingAiHelp = { ...owner, pendingAction: 'ai_help', pendingActionAt: new Date(Date.parse('2026-09-01T16:58:00Z')) };
 const pendingReady = {
 	id: 7, userId: owner.id, lineUserId: 'owner', messageId: 'image-1', status: 'ready' as const,
 	amount: '100.00', occurredAt: new Date('2026-09-01T05:00:00Z'), categoryId: 'other',
@@ -109,6 +116,8 @@ beforeEach(() => {
 	mocks.getPendingSlip.mockResolvedValue(null);
 	mocks.countFeedbackSince.mockResolvedValue(0);
 	mocks.claimPendingAction.mockResolvedValue(true);
+	mocks.claimEvent.mockResolvedValue(true);
+	mocks.answerAiHelp.mockResolvedValue({ text: 'เปิดเว็บแล้วกดหน้าแผนเดือน', remaining: 9 });
 	mocks.processPendingSlip.mockResolvedValue(true);
 	mocks.createFeedback.mockImplementation(async (values) => ({ id: 5, createdAt: new Date(event.timestamp!), status: 'new', resolvedAt: null, ...values }));
 	mocks.updateOwnedPendingSlip.mockImplementation(async (_id, _userId, values) => ({ ...pendingReady, ...values }));
@@ -452,6 +461,42 @@ describe('feedback in chat', () => {
 		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'release' });
 		await say('มีอะไรใหม่');
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('มีอะไรใหม่'));
+	});
+});
+
+describe('AI help in chat', () => {
+	const say = (text: string) => handleEvents([{ ...event, message: { id: 'ai-message', type: 'text', text } }]);
+
+	it('discloses the limit and recording before entering the mode', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'aiHelp' });
+		await say('ช่วยเหลือ');
+		expect(mocks.setPendingAction).toHaveBeenCalledWith(owner.id, 'ai_help', executor);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringMatching(/10 ครั้ง.*บันทึก/s));
+	});
+
+	it('sends every message in active mode to AI without parsing it as money', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: awaitingAiHelp });
+		await say('ตั้งงบตรงไหน');
+		expect(mocks.claimEvent).toHaveBeenCalledWith('event-1');
+		expect(mocks.answerAiHelp).toHaveBeenCalledWith(owner.id, 'ตั้งงบตรงไหน');
+		expect(mocks.parseMessage).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', 'เปิดเว็บแล้วกดหน้าแผนเดือน');
+	});
+
+	it('exits without sending the exit phrase to AI', async () => {
+		mocks.admit.mockResolvedValue({ status: 'member', user: awaitingAiHelp });
+		await say('จบช่วยเหลือ');
+		expect(mocks.setPendingAction).toHaveBeenCalledWith(owner.id, null, executor);
+		expect(mocks.answerAiHelp).not.toHaveBeenCalled();
+	});
+
+	it('shows selectable help topics for วิธีใช้', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'command', command: 'help' });
+		await say('วิธีใช้');
+		expect(mocks.replyQuickReplies).toHaveBeenCalledWith('reply', expect.stringContaining('Nudget'), expect.arrayContaining([
+			expect.objectContaining({ data: 'help:record' }),
+			expect.objectContaining({ data: 'help:ai' })
+		]));
 	});
 });
 

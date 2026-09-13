@@ -12,7 +12,7 @@ export interface ParsedTransaction {
 	paymentMethod?: PaymentMethod;
 }
 
-/** Sub-pages of "ช่วย" (help) — each one is its own short, copy-pasteable guide. */
+/** Sub-pages of "วิธีใช้" — each one is its own short, copy-pasteable guide. */
 export type HelpTopic = 'overview' | 'record' | 'slip' | 'web' | 'bills' | 'commands';
 
 /**
@@ -34,8 +34,9 @@ export type BotCommand =
 	| 'status'
 	| 'web'
 	| 'feedback'
+	| 'aiHelp'
 	| 'release'
-	/** "ช่วย <หัวข้อ>" — bare "help" still means the overview page. */
+	/** "วิธีใช้<หัวข้อ>" or "วิธีใช้ <หัวข้อ>". */
 	| { command: 'help'; topic: HelpTopic }
 	/** Overwrites the most recent entry's note with free text. */
 	| { command: 'note'; text: string };

@@ -30,14 +30,24 @@
 
 <section class="head">
 	<div>
-		<p class="eyebrow">สิ่งที่สมาชิกพิมพ์เข้ามา</p>
-		<h1>ความคิดเห็น</h1>
-		<p>ทุกข้อความที่ใครพิมพ์ฟีดแบ็กผ่าน LINE จะมารวมอยู่ที่นี่ เรียงจากล่าสุดไปเก่าสุด</p>
+		<p class="eyebrow">ติดต่อและเสนอแนะ</p>
+		<h1>ฟีดแบ็ก</h1>
+		<p>{data.isOwner ? 'ข้อความจากสมาชิกเรียงจากล่าสุดไปเก่าสุด' : 'ส่งปัญหา ความเห็น หรือสิ่งที่อยากให้เพิ่มถึงแอดมินได้โดยตรง'}</p>
 	</div>
 </section>
 
 {#if form?.message}<p class="notice">{form.message}</p>{/if}
 
+{#if !data.isOwner}
+	<section class="card compose">
+		<form method="POST" action="?/submit">
+			<label for="message">ข้อความถึงแอดมิน</label>
+			<textarea id="message" name="message" rows="7" maxlength="1000" required placeholder="บอกปัญหาที่เจอ หรือฟีเจอร์ที่อยากได้"></textarea>
+			<p>ข้อความนี้มีเพียงแอดมินที่เปิดดูได้ และระบบจะแจ้งเตือนแอดมินหลังส่งทันที</p>
+			<button type="submit" class="primary">ส่งฟีดแบ็ก</button>
+		</form>
+	</section>
+{:else}
 <nav class="tabs">
 	{#each tabs as tab (tab.key ?? 'all')}
 		<a href={tabHref(tab.key)} class:active={data.status === tab.key}>
@@ -85,10 +95,12 @@
 	{/each}
 	{#if data.feedback.length === 0}<p class="empty">ยังไม่มีความคิดเห็นในหมวดนี้</p>{/if}
 </section>
+{/if}
 
 <style>
 	.head{margin-bottom:var(--stack)}h1{font-size:var(--text-xl)}.head p:last-child{color:var(--ink-muted)}
 	.notice{margin-bottom:1rem;color:var(--out)}
+	.compose{max-width:44rem;padding:1.25rem}.compose form{display:grid;gap:.75rem}.compose label{font-weight:700}.compose textarea{box-sizing:border-box;width:100%;padding:.8rem;border:1px solid var(--rule-strong);border-radius:var(--radius);background:var(--paper-raised);color:var(--ink);font:inherit;resize:vertical}.compose p{color:var(--ink-muted);font-size:var(--text-sm)}
 	.tabs{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:var(--stack-lg)}
 	.tabs a{padding:.4rem .8rem;border-radius:999px;border:1px solid var(--rule-strong);color:var(--ink-muted);font-size:var(--text-sm);text-decoration:none}
 	.tabs a.active{border-color:var(--accent);color:var(--accent)}

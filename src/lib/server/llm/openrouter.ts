@@ -61,16 +61,18 @@ export async function callOpenRouter(call: OpenRouterCall): Promise<OpenRouterRe
 		body: JSON.stringify({
 			model: call.model,
 			messages: [{ role: 'user', content: toContent(call) }],
-			response_format: call.jsonSchema
+			...(call.jsonSchema
 				? {
-						type: 'json_schema',
-						json_schema: {
-							name: call.jsonSchema.name,
-							strict: true,
-							schema: toGatewayDialect(call.jsonSchema.schema)
+						response_format: {
+							type: 'json_schema',
+							json_schema: {
+								name: call.jsonSchema.name,
+								strict: true,
+								schema: toGatewayDialect(call.jsonSchema.schema)
+							}
 						}
 					}
-				: { type: 'json_object' },
+				: {}),
 			temperature: 0,
 			// Bounds the bill even on a model that thinks before answering, because
 			// reasoning tokens are billed as output.

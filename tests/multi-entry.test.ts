@@ -52,7 +52,7 @@ describe('one entry per line', () => {
 	});
 
 	it('still treats a one-line command as a command', async () => {
-		const outcomes = await parseEntries('ช่วย', now);
+		const outcomes = await parseEntries('วิธีใช้', now);
 		expect(outcomes).toHaveLength(1);
 		expect(outcomes[0].type).toBe('command');
 	});
