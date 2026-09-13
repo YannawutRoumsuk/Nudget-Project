@@ -234,6 +234,7 @@ export function extractKind(text: string): KindExtraction {
 
 export function extractPaymentMethod(text: string): { paymentMethod: PaymentMethod; rest: string } {
 	const options: Array<[RegExp, PaymentMethod]> = [
+		[/shopee\s*(?:pay\s*)?later|ช้อปปี้\s*(?:เพย์)?(?:เลเทอร์|เลเตอร์|เลเทอ|เลเตอ)|ช้อปปี้ผ่อน/gi, 'shopee_paylater'],
 		[/(?:จ่าย)?บัตรเครดิต|เครดิตการ์ด/gi, 'credit_card'],
 		[/เงินสด/gi, 'cash'],
 		[/วอลเล็ต|wallet|true\s*money/gi, 'wallet'],

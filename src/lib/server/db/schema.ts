@@ -16,7 +16,7 @@ import {
 
 /** Expense vs income. Stored as text so new kinds never need a migration dance. */
 export type TxKind = 'expense' | 'income';
-export type PaymentMethod = 'bank' | 'cash' | 'credit_card' | 'wallet';
+export type PaymentMethod = 'bank' | 'cash' | 'credit_card' | 'shopee_paylater' | 'wallet';
 export type BillRecurrence = 'monthly' | 'once';
 export type FeedbackStatus = 'new' | 'read' | 'done';
 /** A one-shot conversational mode that the next message answers. */
@@ -83,22 +83,32 @@ export const monthlyPlans = pgTable(
 	(t) => [primaryKey({ columns: [t.userId, t.month] })]
 );
 
-export const bills = pgTable('bills', {
-	id: serial('id').primaryKey(),
-	userId: ownerId(),
-	name: text('name').notNull(),
-	amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
-	categoryId: varchar('category_id', { length: 32 })
-		.notNull()
-		.references(() => categories.id),
-	paymentMethod: varchar('payment_method', { length: 16 }).notNull().$type<PaymentMethod>().default('bank'),
-	recurrence: varchar('recurrence', { length: 8 }).notNull().$type<BillRecurrence>(),
-	dueDay: integer('due_day'),
-	dueDate: date('due_date', { mode: 'date' }),
-	active: boolean('active').notNull().default(true),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-});
+export const bills = pgTable(
+	'bills',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		name: text('name').notNull(),
+		amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+		categoryId: varchar('category_id', { length: 32 })
+			.notNull()
+			.references(() => categories.id),
+		paymentMethod: varchar('payment_method', { length: 24 }).notNull().$type<PaymentMethod>().default('bank'),
+		recurrence: varchar('recurrence', { length: 8 }).notNull().$type<BillRecurrence>(),
+		dueDay: integer('due_day'),
+		dueDate: date('due_date', { mode: 'date' }),
+		/** Purchase that created this next-month obligation; null for hand-made bills. */
+		sourceTransactionId: integer('source_transaction_id'),
+		active: boolean('active').notNull().default(true),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		uniqueIndex('bills_user_source_transaction_idx')
+			.on(t.userId, t.sourceTransactionId)
+			.where(sql`${t.sourceTransactionId} is not null`)
+	]
+);
 
 export const transactions = pgTable(
 	'transactions',
@@ -114,7 +124,7 @@ export const transactions = pgTable(
 		note: text('note').notNull().default(''),
 		/** Instant the money moved, not the instant we recorded it. */
 		occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
-		paymentMethod: varchar('payment_method', { length: 16 }).notNull().$type<PaymentMethod>().default('bank'),
+		paymentMethod: varchar('payment_method', { length: 24 }).notNull().$type<PaymentMethod>().default('bank'),
 		billId: integer('bill_id').references(() => bills.id, { onDelete: 'set null' }),
 		source: varchar('source', { length: 8 }).notNull().$type<'line' | 'web'>(),
 		parsedBy: varchar('parsed_by', { length: 8 }).notNull().$type<'rule' | 'llm' | 'manual' | 'ocr'>(),
@@ -164,7 +174,7 @@ export const pendingSlips = pgTable(
 			.notNull()
 			.default('other')
 			.references(() => categories.id),
-		paymentMethod: varchar('payment_method', { length: 16 }).notNull().$type<PaymentMethod>().default('bank'),
+		paymentMethod: varchar('payment_method', { length: 24 }).notNull().$type<PaymentMethod>().default('bank'),
 		note: text('note').notNull().default(''),
 		recipient: text('recipient').notNull().default(''),
 		reference: text('reference').notNull().default(''),

@@ -1,6 +1,8 @@
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, notInArray, sql } from 'drizzle-orm';
+import { FIXED_EXPENSE_CATEGORY_IDS } from '$lib/categories';
+import { deferredBillForTransaction } from '$lib/deferred';
 import { db } from './index';
-import { processedEvents, reminderDeliveries, transactions } from './schema';
+import { bills, processedEvents, reminderDeliveries, transactions } from './schema';
 import type { NewTransaction, PaymentMethod, Transaction, TxKind } from './schema';
 import { toNumber } from '$lib/utils/money';
 
@@ -59,8 +61,10 @@ function ownedInRange(userId: number, { from, to }: Range, excludeMarked = false
 	);
 }
 
-export async function insertTransaction(tx: NewTransaction, executor: DbExecutor = db): Promise<Transaction> {
+export async function insertTransaction(tx: NewTransaction, executor?: DbExecutor): Promise<Transaction> {
+	if (!executor) return db.transaction((inner) => insertTransaction(tx, inner));
 	const [row] = await executor.insert(transactions).values(tx).returning();
+	await syncDeferredBill(row, executor);
 	return row;
 }
 
@@ -70,17 +74,21 @@ export async function insertTransaction(tx: NewTransaction, executor: DbExecutor
  */
 export async function insertTransactionIfUnique(
 	tx: NewTransaction & { fingerprint: string },
-	executor: DbExecutor = db
+	executor?: DbExecutor
 ): Promise<Transaction | null> {
+	if (!executor) return db.transaction((inner) => insertTransactionIfUnique(tx, inner));
 	const [row] = await executor
 		.insert(transactions)
 		.values(tx)
 		.onConflictDoNothing()
 		.returning();
+	if (row) await syncDeferredBill(row, executor);
 	return row ?? null;
 }
 
-export async function deleteTransaction(id: number, userId: number, executor: DbExecutor = db): Promise<boolean> {
+export async function deleteTransaction(id: number, userId: number, executor?: DbExecutor): Promise<boolean> {
+	if (!executor) return db.transaction((inner) => deleteTransaction(id, userId, inner));
+	await executor.delete(bills).where(and(eq(bills.userId, userId), eq(bills.sourceTransactionId, id)));
 	const deleted = await executor
 		.delete(transactions)
 		.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
@@ -102,12 +110,27 @@ export async function updateTransaction(
 	userId: number,
 	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod' | 'excludeFromBaseline' | 'anomalyDismissed'>>
 ): Promise<Transaction | null> {
-	const [row] = await db
-		.update(transactions)
-		.set(values)
-		.where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
-		.returning();
-	return row ?? null;
+	return db.transaction(async (executor) => {
+		const [row] = await executor.update(transactions).set(values)
+			.where(and(eq(transactions.id, id), eq(transactions.userId, userId))).returning();
+		if (row) await syncDeferredBill(row, executor);
+		return row ?? null;
+	});
+}
+
+async function syncDeferredBill(transaction: Transaction, executor: DbExecutor): Promise<void> {
+	const draft = deferredBillForTransaction(transaction);
+	const [existing] = await executor.select().from(bills)
+		.where(and(eq(bills.userId, transaction.userId), eq(bills.sourceTransactionId, transaction.id))).limit(1);
+	if (!draft) {
+		if (existing) await executor.delete(bills).where(eq(bills.id, existing.id));
+		return;
+	}
+	if (existing) {
+		await executor.update(bills).set({ ...draft, updatedAt: new Date() }).where(eq(bills.id, existing.id));
+	} else {
+		await executor.insert(bills).values(draft);
+	}
 }
 
 export async function deleteLatestTransaction(userId: number, executor: DbExecutor = db): Promise<Transaction | null> {
@@ -144,6 +167,7 @@ export async function updateLatestTransactionNote(
 		.set({ note })
 		.where(and(eq(transactions.id, latest.id), eq(transactions.userId, userId)))
 		.returning();
+	if (updated) await syncDeferredBill(updated, executor);
 	return updated ?? null;
 }
 
@@ -195,7 +219,7 @@ export async function getByCategory(userId: number, range: Range, kind: TxKind, 
 	}));
 }
 
-export async function getDailySeries(userId: number, range: Range): Promise<DayPoint[]> {
+export async function getDailySeries(userId: number, range: Range, options: { excludeFixed?: boolean } = {}): Promise<DayPoint[]> {
 	const rows = await db
 		.select({
 			day: sql<string>`${BANGKOK_DAY}`,
@@ -203,7 +227,7 @@ export async function getDailySeries(userId: number, range: Range): Promise<DayP
 			total: sql<string>`sum(${transactions.amount})`
 		})
 		.from(transactions)
-		.where(ownedInRange(userId, range))
+		.where(and(ownedInRange(userId, range), options.excludeFixed ? notInArray(transactions.categoryId, [...FIXED_EXPENSE_CATEGORY_IDS]) : undefined))
 		.groupBy(sql`1`, transactions.kind)
 		.orderBy(sql`1`);
 

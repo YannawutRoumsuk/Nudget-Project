@@ -22,6 +22,7 @@ const paymentMethodLabels: Record<string, string> = {
 	bank: 'โอน/บัญชี',
 	cash: 'เงินสด',
 	credit_card: 'บัตรเครดิต',
+	shopee_paylater: 'Shopee PayLater',
 	wallet: 'วอลเล็ต'
 };
 

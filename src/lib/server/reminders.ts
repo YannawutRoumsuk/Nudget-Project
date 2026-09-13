@@ -1,11 +1,12 @@
 import { billDueDate } from '$lib/bills';
-import { bangkokDayStart, addDays, bangkokDayKey, fromBangkok, bangkokParts } from '$lib/utils/date';
+import { bangkokDayStart, bangkokMonthStart, addDays, addMonths, bangkokDayKey, bangkokMonthKey, fromBangkok, bangkokParts } from '$lib/utils/date';
 import { listBills } from './db/bills';
 import { claimReminderDelivery, releaseReminderDelivery } from './db/queries';
 import { listUsers } from './db/users';
 import type { User } from './db/schema';
 import { config } from './config';
 import { pushText } from './line/client';
+import { buildMonthlyLineSummary } from './monthly-summary';
 
 export function reminderKey(billId: number, dueDate: Date): string {
 	return `${billId}:${bangkokDayKey(dueDate)}:${config.reminders.daysBefore}`;
@@ -54,6 +55,25 @@ async function remindUser(user: User, now: Date): Promise<void> {
 			await releaseReminderDelivery(key);
 			throw error;
 		}
+	}
+	if (bangkokParts(now).day === 1) await sendPreviousMonthSummary(user, now);
+}
+
+async function sendPreviousMonthSummary(user: User, now: Date): Promise<void> {
+	const previousMonth = addMonths(bangkokMonthStart(now), -1);
+	const month = bangkokMonthKey(previousMonth);
+	const key = `monthly-summary:${user.id}:${month}`;
+	if (!(await claimReminderDelivery(key, user.id))) return;
+	try {
+		// The monthly close is one automatic call per completed month, so it does
+		// not spend one of the person's three manual analyses for today.
+		const summary = await buildMonthlyLineSummary(user.id, month, now, { claimQuota: false });
+		if (!summary.hasData || !(await pushText(user.lineUserId, summary.text))) {
+			await releaseReminderDelivery(key);
+		}
+	} catch (error) {
+		await releaseReminderDelivery(key);
+		throw error;
 	}
 }
 

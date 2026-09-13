@@ -4,7 +4,7 @@ import type { InsightInput } from '../src/lib/server/insights';
 
 /** Mutable so a test can turn the provider off without reloading the module. */
 const state = vi.hoisted(() => ({
-	llm: { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash' },
+	llm: { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash', insightModel: 'gemini-3.8-flash' },
 	ocr: { mode: 'inline', provider: 'auto', vision: { apiKey: '', model: 'gemini-2.5-flash' } }
 }));
 const recordLlmUsage = vi.hoisted(() => vi.fn());
@@ -23,6 +23,16 @@ const input: InsightInput = {
 	savings: 18000,
 	savingsRate: 60,
 	creditCardSpent: 3200,
+	payLaterSpent: 800,
+	regularExpense: 8000,
+	fixedExpense: 4000,
+	foodExpense: 6000,
+	transportExpense: 2000,
+	otherExpense: 0,
+	regularDailyAverage: 666.67,
+	foodDailyAverage: 500,
+	transportDailyAverage: 166.67,
+	otherDailyAverage: 0,
 	previousIncome: 30000,
 	previousExpense: 15000,
 	categories: [
@@ -30,6 +40,7 @@ const input: InsightInput = {
 		{ categoryId: 'transport', current: 2000, previous: 3500, delta: -1500 }
 	],
 	unpaidBills: 1800,
+	nextMonthBills: 4000,
 	remainingBudget: null,
 	plan: null,
 	daysElapsed: 12,
@@ -39,7 +50,7 @@ const input: InsightInput = {
 };
 
 beforeEach(() => {
-	state.llm = { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash' };
+	state.llm = { provider: 'gemini', apiKey: 'test-key', model: 'gemini-2.5-flash', insightModel: 'gemini-3.8-flash' };
 	fetchMock.mockReset();
 	recordLlmUsage.mockReset();
 	vi.stubGlobal('fetch', fetchMock);
@@ -83,7 +94,7 @@ describe('generateInsight', () => {
 			userId: 7,
 			workflow: 'insights',
 			provider: 'gemini',
-			model: 'gemini-2.5-flash',
+			model: 'gemini-3.8-flash',
 			inputTokens: 321,
 			outputTokens: 87,
 			success: true,
@@ -117,7 +128,7 @@ describe('generateInsight', () => {
 	});
 
 	it('never calls the API when no provider is configured', async () => {
-		state.llm = { provider: 'none', apiKey: '', model: '' };
+		state.llm = { provider: 'none', apiKey: '', model: '', insightModel: '' };
 		expect(await generateInsight(input, 7)).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
@@ -212,7 +223,7 @@ describe('insightSchema', () => {
 
 describe('the analysis through OpenRouter', () => {
 	beforeEach(() => {
-		state.llm = { provider: 'openrouter', apiKey: 'sk-or-test', model: 'google/gemini-2.5-flash-lite' };
+		state.llm = { provider: 'openrouter', apiKey: 'sk-or-test', model: 'google/gemini-2.5-flash-lite', insightModel: 'google/gemini-3.8-flash' };
 	});
 
 	it('reaches the gateway and records its token counters', async () => {
@@ -262,7 +273,7 @@ describe('asking the model for the review shape', () => {
 	});
 
 	it('sends the same schema through the gateway', async () => {
-		state.llm = { provider: 'openrouter', apiKey: 'sk-or-test', model: 'google/gemini-2.5-flash-lite' };
+		state.llm = { provider: 'openrouter', apiKey: 'sk-or-test', model: 'google/gemini-2.5-flash-lite', insightModel: 'google/gemini-3.8-flash' };
 		fetchMock.mockResolvedValue({
 			ok: true,
 			status: 200,

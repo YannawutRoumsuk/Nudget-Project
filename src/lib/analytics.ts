@@ -1,4 +1,4 @@
-import { FALLBACK_CATEGORY, getCategory } from '$lib/categories';
+import { FALLBACK_CATEGORY, getCategory, isFixedExpenseCategory } from '$lib/categories';
 import type { CategorySlice, DayPoint } from '$lib/server/db/queries';
 import { dayKeyRange } from '$lib/utils/date';
 
@@ -51,6 +51,47 @@ export function buildBreakdown(slices: CategorySlice[]): BreakdownRow[] {
 			share: total > 0 ? (slice.total / total) * 100 : 0
 		};
 	});
+}
+
+export interface SpendingProfile {
+	total: number;
+	regular: number;
+	fixed: number;
+	food: number;
+	transport: number;
+	other: number;
+	regularPerDay: number;
+	foodPerDay: number;
+	transportPerDay: number;
+	otherPerDay: number;
+}
+
+/** Separates everyday choices from rent and bills before calculating useful averages. */
+export function buildSpendingProfile(slices: CategorySlice[], days: number): SpendingProfile {
+	let fixed = 0;
+	let food = 0;
+	let transport = 0;
+	let other = 0;
+	for (const slice of slices) {
+		if (isFixedExpenseCategory(slice.categoryId)) fixed += slice.total;
+		else if (slice.categoryId === 'food') food += slice.total;
+		else if (slice.categoryId === 'transport') transport += slice.total;
+		else other += slice.total;
+	}
+	const regular = food + transport + other;
+	const divisor = Math.max(1, days);
+	return {
+		total: regular + fixed,
+		regular,
+		fixed,
+		food,
+		transport,
+		other,
+		regularPerDay: regular / divisor,
+		foodPerDay: food / divisor,
+		transportPerDay: transport / divisor,
+		otherPerDay: other / divisor
+	};
 }
 
 export interface DonutArc extends BreakdownRow {

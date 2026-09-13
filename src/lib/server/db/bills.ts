@@ -20,6 +20,7 @@ export interface BillView {
 	period: string;
 	paid: boolean;
 	transactionId: number | null;
+	sourceTransactionId: number | null;
 }
 
 function toBillView(bill: Bill, reference: Date, paid?: { transactionId: number | null }): BillView {
@@ -53,7 +54,7 @@ export async function createBill(values: typeof bills.$inferInsert, executor: Db
 export async function updateBill(
 	id: number,
 	userId: number,
-	values: Partial<Omit<typeof bills.$inferInsert, 'id' | 'userId' | 'createdAt'>>
+	values: Partial<Omit<typeof bills.$inferInsert, 'id' | 'userId' | 'createdAt' | 'sourceTransactionId'>>
 ): Promise<Bill | null> {
 	return db.transaction(async (executor) => {
 		const [row] = await executor

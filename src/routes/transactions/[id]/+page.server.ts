@@ -6,7 +6,7 @@ import { bangkokParts, fromBangkok } from '$lib/utils/date';
 import type { PaymentMethod, TxKind } from '$lib/server/db/schema';
 import type { Actions, PageServerLoad } from './$types';
 
-const METHODS: PaymentMethod[] = ['bank', 'cash', 'credit_card', 'wallet'];
+const METHODS: PaymentMethod[] = ['bank', 'cash', 'credit_card', 'shopee_paylater', 'wallet'];
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const item = await getTransaction(Number(params.id), requireUserId(locals));

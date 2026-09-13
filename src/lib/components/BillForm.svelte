@@ -36,6 +36,7 @@
 		{ id: 'bank', label: 'โอน/บัญชี' },
 		{ id: 'cash', label: 'เงินสด' },
 		{ id: 'credit_card', label: 'บัตรเครดิต' },
+		{ id: 'shopee_paylater', label: 'Shopee PayLater' },
 		{ id: 'wallet', label: 'วอลเล็ต' }
 	];
 

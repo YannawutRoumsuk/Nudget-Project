@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	listUsers: vi.fn(), listBills: vi.fn(), pushText: vi.fn(),
 	claimReminderDelivery: vi.fn(), releaseReminderDelivery: vi.fn(),
+	buildMonthlyLineSummary: vi.fn(),
 	config: { line: { accessToken: 'token' }, reminders: { daysBefore: 3, hour: 9 } }
 }));
 vi.mock('$lib/server/config', () => ({ config: mocks.config }));
@@ -13,6 +14,7 @@ vi.mock('../src/lib/server/db/queries', () => ({
 	releaseReminderDelivery: mocks.releaseReminderDelivery
 }));
 vi.mock('../src/lib/server/line/client', () => ({ pushText: mocks.pushText }));
+vi.mock('../src/lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: mocks.buildMonthlyLineSummary }));
 
 import { runReminderCheck, shouldRemind } from '../src/lib/server/reminders';
 import { fromBangkok } from '../src/lib/utils/date';
@@ -28,6 +30,19 @@ beforeEach(() => {
 	mocks.config.line.accessToken = 'token';
 	mocks.claimReminderDelivery.mockResolvedValue(true);
 	mocks.pushText.mockResolvedValue(true);
+	mocks.buildMonthlyLineSummary.mockResolvedValue({ text: 'สรุปเดือนก่อน', hasData: true, usedAi: true });
+});
+
+describe('monthly close', () => {
+	it('pushes the previous month once on Bangkok day one', async () => {
+		const first = fromBangkok(2026, 10, 1, 9);
+		mocks.listUsers.mockResolvedValue([{ id: 1, lineUserId: 'owner' }]);
+		mocks.listBills.mockResolvedValue([]);
+		await runReminderCheck(first);
+		expect(mocks.buildMonthlyLineSummary).toHaveBeenCalledWith(1, '2026-09', first, { claimQuota: false });
+		expect(mocks.claimReminderDelivery).toHaveBeenCalledWith('monthly-summary:1:2026-09', 1);
+		expect(mocks.pushText).toHaveBeenCalledWith('owner', 'สรุปเดือนก่อน');
+	});
 });
 
 describe('bill reminders', () => {

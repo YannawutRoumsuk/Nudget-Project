@@ -13,7 +13,7 @@ const responseSchema = z.object({
 	amount: z.number().positive().finite().nullable(),
 	category: z.string().nullable(),
 	note: z.string().default(''),
-	paymentMethod: z.enum(['bank', 'cash', 'credit_card', 'wallet']).default('bank'),
+	paymentMethod: z.enum(['bank', 'cash', 'credit_card', 'shopee_paylater', 'wallet']).default('bank'),
 	/** `YYYY-MM-DD` in Bangkok time, or null for "the message is about today". */
 	date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null)
 });
@@ -34,7 +34,7 @@ const ENTRY_JSON_SCHEMA = {
 		category: { type: ['string', 'null'] },
 		note: { type: 'string' },
 		date: { type: ['string', 'null'] },
-		paymentMethod: { type: 'string', enum: ['bank', 'cash', 'credit_card', 'wallet'] }
+		paymentMethod: { type: 'string', enum: ['bank', 'cash', 'credit_card', 'shopee_paylater', 'wallet'] }
 	}
 };
 
@@ -55,7 +55,7 @@ function buildPrompt(text: string, now: Date): string {
 		'- kind is "income" only when money came in; otherwise "expense".',
 		'- category must be one of the ids above and must match the chosen kind.',
 		'- note is a short Thai label for the entry (<= 40 chars), no amount in it.',
-		'- paymentMethod is bank, cash, credit_card, or wallet. Use bank when unspecified.',
+		'- paymentMethod is bank, cash, credit_card, shopee_paylater, or wallet. Use shopee_paylater for Shopee PayLater and bank when unspecified.',
 		'- date is YYYY-MM-DD when the message names a day, otherwise null.',
 		'- Thai number words count: "ห้าสิบบาท" is 50, "สองพัน" is 2000.',
 		'- isTransaction is false when the message is not a finance entry; then use null for kind, amount, and category.',
