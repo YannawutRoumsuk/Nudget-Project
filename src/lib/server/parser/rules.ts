@@ -22,7 +22,7 @@ export function normalize(text: string): string {
 
 // ---------------------------------------------------------------- commands --
 
-/** Sub-topic word after "ช่วย <หัวข้อ>" → the help page it opens. */
+/** Sub-topic word after "วิธีใช้" → the help page it opens. */
 const HELP_TOPIC_WORDS: Record<string, HelpTopic> = {
 	บันทึก: 'record',
 	สลิป: 'slip',
@@ -35,9 +35,6 @@ const HELP_TOPIC_WORDS: Record<string, HelpTopic> = {
 const SIMPLE_COMMANDS: Record<string, BotCommand> = {
 	help: 'help',
 	'?': 'help',
-	ช่วย: 'help',
-	ช่วยด้วย: 'help',
-	ช่วยเหลือ: 'help',
 	วิธีใช้: 'help',
 	ใช้ยังไง: 'help',
 	ทำไง: 'help',
@@ -81,6 +78,11 @@ const SIMPLE_COMMANDS: Record<string, BotCommand> = {
 	ฟีดแบค: 'feedback',
 	แจ้งปัญหา: 'feedback',
 	ติดต่อ: 'feedback',
+	ช่วยเหลือ: 'aiHelp',
+	ช่วยด้วย: 'aiHelp',
+	ช่วยหน่อย: 'aiHelp',
+	คุยกับเอไอ: 'aiHelp',
+	ถามเอไอ: 'aiHelp',
 	มีอะไรใหม่: 'release',
 	อัปเดต: 'release',
 	whatsnew: 'release'
@@ -88,8 +90,8 @@ const SIMPLE_COMMANDS: Record<string, BotCommand> = {
 
 /** "โน้ต ..." / "หมายเหตุ ..." carries free text, so it is matched before anything else. */
 const NOTE_RE = /^(?:โน้ต|หมายเหตุ)\s+([\s\S]+)$/;
-/** "ช่วย <หัวข้อ>" — a topic word after "ช่วย". Bare "ช่วย" falls through to SIMPLE_COMMANDS. */
-const HELP_TOPIC_RE = /^ช่วย\s+(.+)$/;
+/** Both "วิธีใช้บันทึก" and "วิธีใช้ บันทึก" are accepted. */
+const HELP_TOPIC_RE = /^วิธีใช้\s*(.+)$/;
 
 export function matchCommand(text: string): BotCommand | null {
 	const normalized = normalize(text);

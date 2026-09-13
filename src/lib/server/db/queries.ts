@@ -253,3 +253,13 @@ export async function processEventOnce<T>(
 		return work(executor);
 	});
 }
+
+/** Claims a webhook before work that must run outside a database transaction. */
+export async function claimEvent(eventId: string): Promise<boolean> {
+	const rows = await db
+		.insert(processedEvents)
+		.values({ eventId })
+		.onConflictDoNothing()
+		.returning({ eventId: processedEvents.eventId });
+	return rows.length > 0;
+}

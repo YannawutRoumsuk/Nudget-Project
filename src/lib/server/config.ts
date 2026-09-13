@@ -51,6 +51,9 @@ function resolveLlm() {
 			apiKey: '',
 			model: '',
 			parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
+			helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 10, 0, 50),
+			helpMaxInputChars: boundedInteger(env.LLM_HELP_MAX_INPUT_CHARS, 600, 50, 1_500),
+			helpMaxOutputTokens: boundedInteger(env.LLM_HELP_MAX_OUTPUT_TOKENS, 300, 80, 600),
 			maxInputChars: boundedInteger(env.LLM_PARSER_MAX_INPUT_CHARS, 500, 50, 2_000),
 			maxOutputTokens: boundedInteger(env.LLM_PARSER_MAX_OUTPUT_TOKENS, 150, 50, 400),
 			timeoutMs: boundedInteger(env.LLM_TIMEOUT_MS, 8_000, 1_000, 30_000)
@@ -66,6 +69,9 @@ function resolveLlm() {
 		apiKey,
 		model,
 		parserDailyLimit: boundedInteger(env.LLM_PARSER_DAILY_LIMIT, 20, 0, 200),
+		helpDailyLimit: boundedInteger(env.LLM_HELP_DAILY_LIMIT, 10, 0, 50),
+		helpMaxInputChars: boundedInteger(env.LLM_HELP_MAX_INPUT_CHARS, 600, 50, 1_500),
+		helpMaxOutputTokens: boundedInteger(env.LLM_HELP_MAX_OUTPUT_TOKENS, 300, 80, 600),
 		maxInputChars: boundedInteger(env.LLM_PARSER_MAX_INPUT_CHARS, 500, 50, 2_000),
 		maxOutputTokens: boundedInteger(env.LLM_PARSER_MAX_OUTPUT_TOKENS, 150, 50, 400),
 		timeoutMs: boundedInteger(env.LLM_TIMEOUT_MS, 8_000, 1_000, 30_000)

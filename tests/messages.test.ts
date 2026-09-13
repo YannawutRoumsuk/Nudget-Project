@@ -72,11 +72,11 @@ describe('helpText', () => {
 
 	it('lists the sub-topics in the overview page', () => {
 		const text = helpText('overview');
-		expect(text).toContain('ช่วย บันทึก');
-		expect(text).toContain('ช่วย สลิป');
-		expect(text).toContain('ช่วย เว็บ');
-		expect(text).toContain('ช่วย บิล');
-		expect(text).toContain('ช่วย คำสั่ง');
+		expect(text).toContain('วิธีใช้บันทึก');
+		expect(text).toContain('วิธีใช้สลิป');
+		expect(text).toContain('วิธีใช้เว็บ');
+		expect(text).toContain('วิธีใช้บิล');
+		expect(text).toContain('วิธีใช้คำสั่ง');
 	});
 });
 
@@ -100,7 +100,7 @@ describe('welcomeText / joinedText', () => {
 		for (const text of [welcomeText(), joinedText()]) {
 			expect(text).toContain('ข้าว 60');
 			expect(text).toContain('เว็บ');
-			expect(text).toContain('ช่วย');
+			expect(text).toContain('วิธีใช้');
 		}
 	});
 
@@ -112,7 +112,7 @@ describe('welcomeText / joinedText', () => {
 
 describe('matchCommand', () => {
 	it.each([
-		['ช่วยเหลือ', 'help'],
+		['ช่วยเหลือ', 'aiHelp'],
 		['ใช้ยังไง', 'help'],
 		['ทำไง', 'help'],
 		['ฟีดแบ็ก', 'feedback'],
@@ -127,15 +127,16 @@ describe('matchCommand', () => {
 	});
 
 	it('parses a help sub-topic', () => {
-		expect(matchCommand('ช่วย เว็บ')).toEqual({ command: 'help', topic: 'web' });
-		expect(matchCommand('ช่วย บันทึก')).toEqual({ command: 'help', topic: 'record' });
-		expect(matchCommand('ช่วย สลิป')).toEqual({ command: 'help', topic: 'slip' });
-		expect(matchCommand('ช่วย บิล')).toEqual({ command: 'help', topic: 'bills' });
-		expect(matchCommand('ช่วย คำสั่ง')).toEqual({ command: 'help', topic: 'commands' });
+		expect(matchCommand('วิธีใช้ เว็บ')).toEqual({ command: 'help', topic: 'web' });
+		expect(matchCommand('วิธีใช้บันทึก')).toEqual({ command: 'help', topic: 'record' });
+		expect(matchCommand('วิธีใช้ สลิป')).toEqual({ command: 'help', topic: 'slip' });
+		expect(matchCommand('วิธีใช้บิล')).toEqual({ command: 'help', topic: 'bills' });
+		expect(matchCommand('วิธีใช้ คำสั่ง')).toEqual({ command: 'help', topic: 'commands' });
 	});
 
-	it('still maps bare "ช่วย" to the plain help command', () => {
-		expect(matchCommand('ช่วย')).toBe('help');
+	it('uses วิธีใช้ for static help and no longer reserves bare ช่วย', () => {
+		expect(matchCommand('วิธีใช้')).toBe('help');
+		expect(matchCommand('ช่วย')).toBeNull();
 	});
 
 	it('parses a note command with its free-text payload', () => {

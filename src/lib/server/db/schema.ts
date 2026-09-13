@@ -20,7 +20,7 @@ export type PaymentMethod = 'bank' | 'cash' | 'credit_card' | 'wallet';
 export type BillRecurrence = 'monthly' | 'once';
 export type FeedbackStatus = 'new' | 'read' | 'done';
 /** A one-shot conversational mode that the next message answers. */
-export type PendingAction = 'feedback';
+export type PendingAction = 'feedback' | 'ai_help';
 
 /**
  * Categories are seeded rather than user-managed for now — the parser maps
@@ -218,6 +218,23 @@ export const feedback = pgTable(
 	(t) => [index('feedback_status_created_idx').on(t.status, t.createdAt)]
 );
 
+/** Admin-auditable AI help transcript. Financial entries never enter this table. */
+export const aiConversations = pgTable(
+	'ai_conversations',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		userMessage: text('user_message').notNull(),
+		assistantMessage: text('assistant_message').notNull(),
+		provider: varchar('provider', { length: 16 }).notNull(),
+		model: varchar('model', { length: 64 }).notNull(),
+		inputTokens: integer('input_tokens').notNull().default(0),
+		outputTokens: integer('output_tokens').notNull().default(0),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('ai_conversations_user_created_idx').on(t.userId, t.createdAt)]
+);
+
 /**
  * One row per person per announced release. The primary key is what makes
  * `release:announce` safe to re-run after a half-finished rollout.
@@ -296,5 +313,6 @@ export type Bill = typeof bills.$inferSelect;
 export type MonthlyPlan = typeof monthlyPlans.$inferSelect;
 export type PendingSlip = typeof pendingSlips.$inferSelect;
 export type Feedback = typeof feedback.$inferSelect;
+export type AiConversation = typeof aiConversations.$inferSelect;
 export type ReleaseDelivery = typeof releaseDeliveries.$inferSelect;
 export type StoredInsight = typeof insights.$inferSelect;

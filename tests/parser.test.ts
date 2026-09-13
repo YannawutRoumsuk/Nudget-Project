@@ -31,7 +31,7 @@ describe('normalize', () => {
 
 describe('matchCommand', () => {
 	it.each([
-		['ช่วย', 'help'],
+		['วิธีใช้', 'help'],
 		['help', 'help'],
 		['วันนี้', 'today'],
 		['เดือนนี้', 'month'],

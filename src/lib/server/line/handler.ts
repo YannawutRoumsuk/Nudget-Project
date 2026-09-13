@@ -2,6 +2,7 @@ import { EXPENSE_CATEGORIES, FALLBACK_CATEGORY } from '$lib/categories';
 import { analyzeBudget } from '$lib/budget';
 import { billDueDate } from '$lib/bills';
 import { config, describeLlmSetup } from '$lib/server/config';
+import { answerAiHelp } from '$lib/server/help/generate';
 import { textTransactionFingerprint } from '$lib/server/dedupe';
 import { admit, isOwner } from '$lib/server/access';
 import { claimPendingAction, listMembers, pendingActionIsLive, setPendingAction } from '$lib/server/db/users';
@@ -16,6 +17,7 @@ import { createBill, getUnpaidBillTotal, listBills } from '$lib/server/db/bills'
 import { getMonthlyPlan } from '$lib/server/db/plans';
 import {
 	processEventOnce,
+	claimEvent,
 	deleteLatestTransaction,
 	getByCategory,
 	getPaymentMethodTotal,
@@ -37,7 +39,7 @@ import {
 import type { Feedback, NewTransaction, PendingSlip, User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseEntries, parseMessage } from '$lib/server/parser';
-import type { BotCommand, InstallmentPlan, ParseOutcome } from '$lib/server/parser';
+import type { BotCommand, HelpTopic, InstallmentPlan, ParseOutcome } from '$lib/server/parser';
 import {
 	addDays,
 	addMonths,
@@ -56,6 +58,8 @@ import {
 	confirmNoteUpdated,
 	confirmSaved,
 	confirmSavedMany,
+	aiHelpEndText,
+	aiHelpStartText,
 	duplicateSlipActions,
 	duplicateSlipText,
 	duplicateTextWarning,
@@ -126,7 +130,7 @@ async function handleEvent(event: LineEvent): Promise<void> {
 	const user = await gateOnMembership(event.replyToken, userId);
 	if (!user) return;
 	if (event.type === 'postback' && event.postback) {
-		await handleSlipPostback(event, user);
+		await handlePostback(event, user);
 		return;
 	}
 	if (event.type !== 'message' || !event.message) return;
@@ -164,6 +168,23 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		await sendQuietly(() => replyText(event.replyToken as string, captured.reply as string));
 		return;
 	}
+	if (!pending && user.pendingAction === 'ai_help' && pendingActionIsLive(user, sentAt)) {
+		if (/^(?:จบช่วยเหลือ|ออก|ยกเลิก)$/i.test(text.trim())) {
+			const ended = await processEventOnce(eventId, async (executor) => {
+				await setPendingAction(user.id, null, executor);
+				return aiHelpEndText();
+			});
+			if (ended) await sendQuietly(() => replyText(event.replyToken as string, ended));
+			return;
+		}
+		// The provider call stays outside a transaction. Claiming first keeps a
+		// redelivered webhook from spending the user's quota twice.
+		if (!(await claimEvent(eventId))) return;
+		await setPendingAction(user.id, 'ai_help');
+		const answer = await answerAiHelp(user.id, text);
+		await sendQuietly(() => replyText(event.replyToken as string, answer.text));
+		return;
+	}
 	const command = matchCommand(text);
 	const override = !pending ? duplicateOverride(text) : null;
 	const entryText = override?.text ?? text;
@@ -199,6 +220,7 @@ async function handleEvent(event: LineEvent): Promise<void> {
 
 type LineResponse =
 	| string
+	| { kind: 'help'; topic: HelpTopic }
 	| { kind: 'slip'; slip: PendingSlip }
 	| { kind: 'duplicate-slip'; slip: PendingSlip }
 	| { kind: 'categories'; pendingId: number };
@@ -213,6 +235,17 @@ async function replyResponse(replyToken: string, response: LineResponse): Promis
 			label: `${category.icon} ${category.nameTh}`,
 			data: `slip:category:${response.pendingId}:${category.id}`
 		})));
+		return;
+	}
+	if (response.kind === 'help') {
+		await replyQuickReplies(replyToken, helpText(response.topic), [
+			{ label: '📝 บันทึก', data: 'help:record' },
+			{ label: '🧾 สลิป', data: 'help:slip' },
+			{ label: '🌐 เว็บ', data: 'help:web' },
+			{ label: '📅 บิล', data: 'help:bills' },
+			{ label: '📋 คำสั่ง', data: 'help:commands' },
+			{ label: '🤖 ถาม AI', data: 'help:ai' }
+		]);
 		return;
 	}
 	if (response.kind === 'duplicate-slip') {
@@ -232,9 +265,24 @@ function pendingExpired(pending: PendingSlip): boolean {
 	return Boolean(pending.expiresAt && pending.expiresAt.getTime() <= Date.now());
 }
 
-async function handleSlipPostback(event: LineEvent, user: User): Promise<void> {
+async function handlePostback(event: LineEvent, user: User): Promise<void> {
 	if (!event.replyToken) return;
 	const data = event.postback?.data ?? '';
+	const helpMatch = /^help:(record|slip|web|bills|commands|ai)$/.exec(data);
+	if (helpMatch) {
+		const eventId = event.webhookEventId;
+		if (!eventId) throw new Error('LINE postback has no event identifier');
+		if (helpMatch[1] === 'ai') {
+			const response = await processEventOnce(eventId, async (executor) => {
+				await setPendingAction(user.id, 'ai_help', executor);
+				return aiHelpStartText(config.llm.helpDailyLimit);
+			});
+			if (response) await sendQuietly(() => replyText(event.replyToken as string, response));
+			return;
+		}
+		await replyResponse(event.replyToken, { kind: 'help', topic: helpMatch[1] as HelpTopic });
+		return;
+	}
 	const categoryMatch = /^slip:category:(\d+):([a-z_]{1,32})$/.exec(data);
 	const actionMatch = /^slip:(save|force-save|edit-amount|change-category|change-date|cancel):(\d+)$/.exec(data);
 	if (!categoryMatch && !actionMatch) return;
@@ -449,8 +497,8 @@ async function respondTo(
 	if (outcome.type === 'command') {
 		// Starting another conversation now would strand the slip: it holds an
 		// amount and a date that exist nowhere else once it is replaced.
-		if (pending && outcome.command === 'feedback') {
-			return 'ยังมีสลิปที่อ่านเสร็จรออยู่ ตอบว่าเป็นค่าอะไรก่อน หรือพิมพ์ “ยกเลิก” แล้วค่อยส่งฟีดแบ็ก';
+		if (pending && (outcome.command === 'feedback' || outcome.command === 'aiHelp')) {
+			return 'ยังมีสลิปที่อ่านเสร็จรออยู่ ตอบว่าเป็นค่าอะไรก่อน หรือพิมพ์ “ยกเลิก” แล้วค่อยเริ่มรายการนี้';
 		}
 		return runCommand(outcome.command, user, executor);
 	}
@@ -499,16 +547,19 @@ async function respondTo(
 	return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind]);
 }
 
-async function runCommand(command: BotCommand, user: User, executor: DbExecutor): Promise<string> {
+async function runCommand(command: BotCommand, user: User, executor: DbExecutor): Promise<LineResponse> {
 	// Only the two commands that carry a payload are objects; everything else
 	// stays a plain string so the switch below is still checked exhaustively.
 	if (typeof command === 'object') {
-		if (command.command === 'help') return helpText(command.topic);
+		if (command.command === 'help') return { kind: 'help', topic: command.topic };
 		return updateNote(command.text, user, executor);
 	}
 	switch (command) {
 		case 'help':
-			return helpText();
+			return { kind: 'help', topic: 'overview' };
+		case 'aiHelp':
+			await setPendingAction(user.id, 'ai_help', executor);
+			return aiHelpStartText(config.llm.helpDailyLimit);
 		case 'whoami':
 			return `LINE userId ของคุณคือ\n${user.lineUserId}`;
 		case 'web':
@@ -523,15 +574,6 @@ async function runCommand(command: BotCommand, user: User, executor: DbExecutor)
 			// Answered in handleEvent for the same reason: it reads settings, not
 			// this person's ledger, and it must not be deduped as a mutation.
 			throw new Error('status must be handled before the ledger transaction');
-		case 'feedback':
-			// The message itself comes next: what someone wants to say rarely fits
-			// on the line that opens the conversation.
-			await setPendingAction(user.id, 'feedback', executor);
-			return feedbackPromptText();
-		case 'release': {
-			const [latest] = releases;
-			return latest ? releaseNotesText(latest) : noReleaseText();
-		}
 		case 'feedback':
 			// The message itself comes next: what someone wants to say rarely fits
 			// on the line that opens the conversation.
