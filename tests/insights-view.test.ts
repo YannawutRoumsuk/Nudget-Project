@@ -4,6 +4,7 @@ import {
 	buildMonthlyFacts,
 	changeLabel,
 	classifyChange,
+	detectSpendingAnomalies,
 	percentChange,
 	totalSavings
 } from '../src/lib/insights';
@@ -111,6 +112,51 @@ describe('buildComparison', () => {
 		expect(buildComparison([])).toEqual([]);
 		const none = buildComparison([{ categoryId: 'food', current: 0, previous: 0, delta: 0 }]);
 		expect(none[0].share).toBe(0);
+	});
+	it('can rank comparable categories by percentage instead of baht', () => {
+		const byPercent = buildComparison([
+			{ categoryId: 'food', current: 5000, previous: 4800, delta: 200 },
+			{ categoryId: 'transport', current: 900, previous: 2400, delta: -1500 },
+			{ categoryId: 'shopping', current: 700, previous: 0, delta: 700 }
+		], 'percent');
+		expect(byPercent.map((row) => row.categoryId)).toEqual(['transport', 'food', 'shopping']);
+	});
+});
+
+describe('detectSpendingAnomalies', () => {
+	const source = (id: number, amount: number, categoryId = 'food') => ({
+		id,
+		amount,
+		categoryId,
+		note: '',
+		occurredAt: new Date('2026-09-01T05:00:00Z'),
+		excludeFromBaseline: false,
+		anomalyDismissed: false
+	});
+
+	it('uses a robust category baseline and explains the threshold', () => {
+		const result = detectSpendingAnomalies(
+			[source(20, 350)],
+			[90, 100, 100, 110, 120].map((amount, index) => source(index, amount))
+		);
+		expect(result.anomalies).toHaveLength(1);
+		expect(result.anomalies[0]).toMatchObject({ median: 100, upperFence: 200, ratio: 3.5, sampleSize: 5 });
+	});
+
+	it('ignores marked history and acknowledged current items', () => {
+		const marked = { ...source(9, 10000), excludeFromBaseline: true };
+		const dismissed = { ...source(20, 350), anomalyDismissed: true };
+		const result = detectSpendingAnomalies(
+			[dismissed],
+			[90, 100, 100, 110, 120].map((amount, index) => source(index, amount)).concat(marked)
+		);
+		expect(result.anomalies).toEqual([]);
+	});
+
+	it('does not overclaim when a category has fewer than five samples', () => {
+		const result = detectSpendingAnomalies([source(20, 900)], [100, 110, 120].map((amount, index) => source(index, amount)));
+		expect(result.anomalies).toEqual([]);
+		expect(result.insufficientCategories).toEqual(['food']);
 	});
 });
 

@@ -23,6 +23,7 @@ export const actions: Actions = {
 		const categoryId = String(form.get('categoryId'));
 		const paymentMethod = String(form.get('paymentMethod')) as PaymentMethod;
 		const note = String(form.get('note') ?? '').trim();
+		const excludeFromBaseline = form.get('excludeFromBaseline') === 'on';
 		const [year, month, day] = String(form.get('date')).split('-').map(Number);
 		const [hour, minute] = String(form.get('time') || '12:00').split(':').map(Number);
 		const category = ALL_CATEGORIES.find((item) => item.id === categoryId && item.kind === kind);
@@ -36,7 +37,7 @@ export const actions: Actions = {
 		}
 		const updated = await updateTransaction(Number(params.id), userId, {
 			kind, amount: amount.toFixed(2), categoryId, note,
-			paymentMethod, occurredAt
+			paymentMethod, occurredAt, excludeFromBaseline
 		});
 		if (!updated) return fail(404, { message: 'ไม่พบรายการนี้' });
 		redirect(303, '/transactions');

@@ -74,8 +74,8 @@ export async function buildInsightInput(
 		getUnpaidBillTotal(userId, selection.from),
 		getMonthlyPlan(userId, selection.key),
 		getPaymentMethodTotal(userId, range, 'credit_card'),
-		getTotals(userId, previousRange),
-		getByCategory(userId, previousRange, 'expense')
+		getTotals(userId, previousRange, undefined, true),
+		getByCategory(userId, previousRange, 'expense', undefined, true)
 	]);
 
 	const income = baht(totals.income);
