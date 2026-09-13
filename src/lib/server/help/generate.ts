@@ -66,6 +66,8 @@ function buildPrompt(message: string, history: Awaited<ReturnType<typeof recentA
 	return [
 		'คุณคือผู้ช่วยสอนใช้งาน Nudget ตอบภาษาไทยสั้น กระชับ และทำตามได้ทันที',
 		'ตอบเฉพาะการใช้งาน Nudget ถ้าถามเรื่องอื่น ให้บอกว่าโหมดนี้ตอบเฉพาะวิธีใช้ Nudget',
+		'อ่านข้อความก่อนหน้าเพื่อเข้าใจคำถามต่อ เช่น “แล้วในไลน์ต้องส่งยังไง” ต้องตอบต่อจากเรื่องที่เพิ่งคุย ไม่เริ่มคู่มือใหม่ทั้งหมด',
+		'ตอบเป็นข้อความธรรมดาสำหรับ LINE เท่านั้น ห้ามใช้ Markdown ห้ามใช้ ** ห้ามใช้ backtick และห้ามใช้หัวข้อยาว',
 		'ห้ามขอรหัสผ่าน API key เลขบัญชี หรือข้อมูลลับ และห้ามแต่งความสามารถที่ไม่มี',
 		'',
 		'ความสามารถจริง:',
@@ -86,10 +88,11 @@ async function callProvider(prompt: string): Promise<ProviderAnswer> {
 	if (config.llm.provider === 'openrouter') {
 		return callOpenRouter({
 			apiKey: config.llm.apiKey,
-			model: config.llm.model,
+			model: config.llm.helpModel,
 			prompt,
 			maxOutputTokens: config.llm.helpMaxOutputTokens,
-			timeoutMs: config.llm.timeoutMs
+			timeoutMs: config.llm.timeoutMs,
+			reasoning: { effort: 'minimal', exclude: true }
 		});
 	}
 	if (config.llm.provider === 'anthropic') {
@@ -98,7 +101,7 @@ async function callProvider(prompt: string): Promise<ProviderAnswer> {
 			'x-api-key': config.llm.apiKey,
 			'anthropic-version': '2023-06-01'
 		}, {
-			model: config.llm.model,
+			model: config.llm.helpModel,
 			max_tokens: config.llm.helpMaxOutputTokens,
 			messages: [{ role: 'user', content: prompt }]
 		});
@@ -110,7 +113,7 @@ async function callProvider(prompt: string): Promise<ProviderAnswer> {
 		};
 	}
 
-	const res = await request(`https://generativelanguage.googleapis.com/v1beta/models/${config.llm.model}:generateContent`, {
+	const res = await request(`https://generativelanguage.googleapis.com/v1beta/models/${config.llm.helpModel}:generateContent`, {
 		'content-type': 'application/json',
 		'x-goog-api-key': config.llm.apiKey
 	}, {
@@ -137,20 +140,27 @@ async function request(url: string, headers: Record<string, string>, body: unkno
 }
 
 function clean(value: string): string {
-	return value.trim().slice(0, 1400).trim();
+	return value
+		.replace(/\*\*(.*?)\*\*/gs, '$1')
+		.replace(/`([^`]+)`/g, '$1')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/^\s*[-*]\s+/gm, '• ')
+		.trim()
+		.slice(0, 1000)
+		.trim();
 }
 
 async function saveConversation(userId: number, userMessage: string, assistantMessage: string, inputTokens: number, outputTokens: number) {
 	await createAiConversation({
 		userId, userMessage, assistantMessage, provider: config.llm.provider,
-		model: config.llm.model, inputTokens, outputTokens
+		model: config.llm.helpModel, inputTokens, outputTokens
 	});
 }
 
 async function saveUsage(userId: number, success: boolean, inputTokens: number, outputTokens: number, errorCodeValue: string | null) {
 	try {
 		await recordLlmUsage({
-			userId, workflow: 'help', provider: config.llm.provider, model: config.llm.model,
+			userId, workflow: 'help', provider: config.llm.provider, model: config.llm.helpModel,
 			inputTokens, outputTokens, success, errorCode: errorCodeValue
 		});
 	} catch (error) {
