@@ -18,6 +18,7 @@ vi.mock('../src/lib/server/db/queries', () => ({
 vi.mock('../src/lib/server/line/client', () => ({ pushText: mocks.pushText, pushFlex: mocks.pushFlex }));
 vi.mock('../src/lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: mocks.buildMonthlyLineSummary }));
 vi.mock('../src/lib/server/budget-alerts', () => ({ sendBudgetThresholdAlerts: mocks.sendBudgetThresholdAlerts }));
+vi.mock('../src/lib/server/operations', () => ({ recordSystemEvent: vi.fn() }));
 
 import { inactivityReminderKey, runReminderCheck, shouldRemind } from '../src/lib/server/reminders';
 import { fromBangkok } from '../src/lib/utils/date';

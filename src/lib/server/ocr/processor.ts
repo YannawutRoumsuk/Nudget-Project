@@ -6,6 +6,7 @@ import { matchCategory } from '$lib/server/parser/rules';
 import { getMessageContent, pushQuickReplies, pushText } from '$lib/server/line/client';
 import { slipReviewActions, slipReviewText } from '$lib/server/line/messages';
 import { readSlip } from './slip';
+import { recordSystemEvent } from '$lib/server/operations';
 
 export async function processPendingSlip(id: number): Promise<boolean> {
 	const pending = await claimPendingSlip(id);
@@ -43,6 +44,7 @@ export async function processClaimedSlip(pending: PendingSlip): Promise<void> {
 			slipReviewActions(updated.id)
 		);
 	} catch (error) {
+		await recordSystemEvent('ocr_failure', false, 'read_failed');
 		console.error('[ocr] slip failed:', error);
 		const updated = await updatePendingSlip(pending.id, { status: 'failed' });
 		if (!stillOurs(updated, pending)) return;

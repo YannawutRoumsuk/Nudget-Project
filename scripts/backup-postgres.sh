@@ -16,6 +16,9 @@ on_exit() {
 	fi
 
 	log "backup_failed exit_code=${exit_code}"
+	if [[ -n "${DATABASE_URL:-}" ]]; then
+		psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO system_events (event_type, success, error_code) VALUES ('backup', false, 'backup_failed')" >/dev/null 2>&1 || log 'backup_metric_failed'
+	fi
 	if [[ -n "${LINE_CHANNEL_ACCESS_TOKEN:-}" && -n "${BACKUP_ALERT_LINE_USER_ID:-}" ]]; then
 		local message
 		message=$(jq -nc \
@@ -80,6 +83,7 @@ if [[ -n "${BACKUP_LOCAL_DIR:-}" ]]; then
 	cp -- "$dump_path" "$manifest_path" "$BACKUP_LOCAL_DIR/"
 	find "$BACKUP_LOCAL_DIR" -type f -name 'nudget-*.dump*' -mtime "+${BACKUP_RETENTION_DAYS}" -delete
 	log "backup_completed destination=local key=${filename} bytes=${dump_bytes} sha256=${dump_sha256}"
+	psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO system_events (event_type, success) VALUES ('backup', true)" >/dev/null || log 'backup_metric_failed'
 	exit 0
 fi
 
@@ -125,3 +129,4 @@ for expired_dump_key in "${expired_keys[@]:-}"; do
 done
 
 log "backup_completed destination=s3 key=${object_key} bytes=${dump_bytes} sha256=${dump_sha256} expired_backups_deleted=${expired_count}"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO system_events (event_type, success) VALUES ('backup', true)" >/dev/null || log 'backup_metric_failed'

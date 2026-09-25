@@ -11,6 +11,7 @@ import { buildMonthlyLineSummary } from './monthly-summary';
 import { sendBudgetThresholdAlerts } from './budget-alerts';
 import { billReminderStage, buildBillReminderMessages, type BillReminderItem, type BillReminderStage } from './bill-reminder-message';
 import { pushFlex } from './line/client';
+import { recordSystemEvent } from './operations';
 
 export const INACTIVITY_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -30,17 +31,23 @@ export function shouldRemind(dueDate: Date, now: Date, daysBefore: number): bool
  */
 export async function runReminderCheck(now = new Date()): Promise<void> {
 	if (!config.line.accessToken) return;
-	const users = await listUsers();
-	const failures: unknown[] = [];
-	for (const user of users) {
-		try {
-			await remindUser(user, now);
-		} catch (error) {
-			console.error(`[reminders] user ${user.id} failed:`, error);
-			failures.push(error);
+	try {
+		const users = await listUsers();
+		const failures: unknown[] = [];
+		for (const user of users) {
+			try {
+				await remindUser(user, now);
+			} catch (error) {
+				console.error(`[reminders] user ${user.id} failed:`, error);
+				failures.push(error);
+			}
 		}
+		if (failures.length > 0) throw failures[0];
+		await recordSystemEvent('reminder_run');
+	} catch (error) {
+		await recordSystemEvent('reminder_run', false, 'reminder_failed');
+		throw error;
 	}
-	if (failures.length > 0) throw failures[0];
 }
 
 async function remindUser(user: User, now: Date): Promise<void> {

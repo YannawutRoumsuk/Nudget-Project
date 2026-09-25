@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { config } from '$lib/server/config';
 import { handleEvents } from '$lib/server/line/handler';
 import { verifyLineSignature } from '$lib/server/line/signature';
+import { recordSystemEvent } from '$lib/server/operations';
 import type { RequestHandler } from './$types';
 
 /** Health probe. LINE verifies with a signed POST containing an empty events array. */
@@ -47,12 +48,14 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	if (!payload.success) return text('invalid payload', { status: 400 });
+	await recordSystemEvent('webhook');
 	if (payload.data.events.length > 0 && !config.line.accessToken) {
 		return text('not configured', { status: 503 });
 	}
 	try {
 		await handleEvents(payload.data.events);
 	} catch (error) {
+		await recordSystemEvent('webhook', false, 'processing_failed');
 		console.error('[webhook] processing failed:', error);
 		return text('processing failed', { status: 503 });
 	}

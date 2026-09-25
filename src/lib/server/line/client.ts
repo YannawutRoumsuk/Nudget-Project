@@ -1,4 +1,5 @@
 import { config } from '$lib/server/config';
+import { recordSystemEvent } from '$lib/server/operations';
 
 const REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
 const PUSH_URL = 'https://api.line.me/v2/bot/message/push';
@@ -17,22 +18,30 @@ function toMessages(text: string): TextMessage[] {
 }
 
 async function post(url: string, body: unknown): Promise<boolean> {
-	const res = await fetch(url, {
-		method: 'POST',
-		headers: {
-			'content-type': 'application/json',
-			authorization: `Bearer ${config.line.accessToken}`
-		},
-		body: JSON.stringify(body),
-		signal: AbortSignal.timeout(10_000)
-	});
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				authorization: `Bearer ${config.line.accessToken}`
+			},
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(10_000)
+		});
+	} catch (error) {
+		if (url === PUSH_URL) await recordSystemEvent('line_push', false, 'network_error');
+		throw error;
+	}
 
 	if (!res.ok) {
+		if (url === PUSH_URL) await recordSystemEvent('line_push', false, `http_${res.status}`);
 		// A failed reply must not fail the webhook — LINE would just retry and we
 		// would re-run the (already committed) side effects.
 		console.error(`[line] ${url} responded ${res.status}: ${await res.text()}`);
 		return false;
 	}
+	if (url === PUSH_URL) await recordSystemEvent('line_push');
 	return true;
 }
 
