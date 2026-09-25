@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 	updateOwnedPendingSlip: vi.fn(), consumePendingSlip: vi.fn(), deleteOwnedPendingSlip: vi.fn(),
 	claimPendingSlipForSave: vi.fn(), releasePendingSlipSave: vi.fn(),
 	getMessageContent: vi.fn(), pushText: vi.fn(), replyQuickReplies: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
-	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(),
+	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), touchUserActivity: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
 	claimEvent: vi.fn(), answerAiHelp: vi.fn(),
@@ -22,6 +22,7 @@ vi.mock('$lib/server/access', () => ({
 }));
 vi.mock('$lib/server/db/users', () => ({
 	listMembers: mocks.listMembers,
+	touchUserActivity: mocks.touchUserActivity,
 	setPendingAction: mocks.setPendingAction,
 	claimPendingAction: mocks.claimPendingAction,
 	pendingActionIsLive: (user: { pendingActionAt: Date | null }) => user.pendingActionAt !== null

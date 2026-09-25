@@ -51,6 +51,8 @@ export const users = pgTable('users', {
 	 * cascade away every baht the person ever recorded.
 	 */
 	active: boolean('active').notNull().default(true),
+	/** Last authenticated web or LINE interaction, independent of backdated ledger entries. */
+	lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
 	/**
 	 * What the bot is waiting for this person to type next, e.g. the body of a
 	 * feedback message. It lives here rather than in memory because a webhook is

@@ -38,7 +38,7 @@
 			</header>
 			<dl>
 				<div><dt>เข้ามาเมื่อ</dt><dd>{formatThaiShortDate(member.joinedAt)} {formatThaiTime(member.joinedAt)} น.</dd></div>
-				<div><dt>ใช้ล่าสุด</dt><dd>{member.lastActivityAt ? formatThaiShortDate(member.lastActivityAt) : 'ยังไม่เคยบันทึก'}</dd></div>
+				<div><dt>ใช้งานล่าสุด</dt><dd>{member.lastActivityAt ? `${formatThaiShortDate(member.lastActivityAt)} ${formatThaiTime(member.lastActivityAt)} น.` : 'ยังไม่เคยใช้งาน'}</dd></div>
 				<div class="wide"><dt>LINE id</dt><dd><code>{member.lineUserId}</code></dd></div>
 			</dl>
 			{#if !member.isOwner}

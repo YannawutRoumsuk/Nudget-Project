@@ -1,4 +1,4 @@
-import { and, count, desc, eq, max } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 import { db } from './index';
 import { transactions, users } from './schema';
 import type { PendingAction, User } from './schema';
@@ -39,8 +39,13 @@ export async function activateUser(lineUserId: string, executor: DbExecutor = db
 }
 
 export async function setUserActive(id: number, active: boolean): Promise<User | null> {
-	const [row] = await db.update(users).set({ active, updatedAt: new Date() }).where(eq(users.id, id)).returning();
+	const now = new Date();
+	const [row] = await db.update(users).set({ active, updatedAt: now, ...(active ? { lastActivityAt: now } : {}) }).where(eq(users.id, id)).returning();
 	return row ?? null;
+}
+
+export async function touchUserActivity(id: number, at = new Date()): Promise<void> {
+	await db.update(users).set({ lastActivityAt: at }).where(eq(users.id, id));
 }
 
 export async function setDisplayName(id: number, displayName: string): Promise<void> {
@@ -61,15 +66,8 @@ export interface MemberSummary {
 	lastActivityAt: Date | null;
 }
 
-/**
- * Who is using the bot, when they joined and whether they are actually using
- * it. Activity is derived from the ledger rather than tracked separately, so
- * watching the member list costs nothing on the message path.
- */
+/** Member list keeps true interaction time separate from backdated transactions. */
 export async function listMembers(): Promise<MemberSummary[]> {
-	// Drizzle's aggregate helpers keep the column's own decoder, so `max` comes
-	// back as a Date. A raw sql`max(...)` hands back Postgres' string form and
-	// every date formatter downstream then receives the wrong type.
 	const rows = await db
 		.select({
 			id: users.id,
@@ -78,7 +76,7 @@ export async function listMembers(): Promise<MemberSummary[]> {
 			active: users.active,
 			joinedAt: users.createdAt,
 			transactionCount: count(transactions.id),
-			lastActivityAt: max(transactions.occurredAt)
+			lastActivityAt: users.lastActivityAt
 		})
 		.from(users)
 		.leftJoin(transactions, eq(transactions.userId, users.id))

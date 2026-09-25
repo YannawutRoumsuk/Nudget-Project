@@ -19,7 +19,7 @@ if (url) {
 
 suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
-	const { listMembers, setUserActive, getUserByLineId } = await import('../src/lib/server/db/users');
+	const { listMembers, setUserActive, getUserByLineId, touchUserActivity } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
 	const { billPayments, bills, categories, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
 
@@ -68,7 +68,7 @@ suite('membership against a real database', async () => {
 		expect((await resolveMember('Uowner'))?.id).toBe(owner!.id);
 	});
 
-	it('reports who joined, how much they recorded and when they were last active', async () => {
+	it('reports who joined, how much they recorded and recent activity independently of transactions', async () => {
 		const guest = await admit('Uguest', async () => 'เพื่อน');
 		const guestId = guest.status === 'joined' ? guest.user.id : 0;
 		await admit('Uquiet', async () => 'คนเงียบ');
@@ -77,6 +77,7 @@ suite('membership against a real database', async () => {
 			{ userId: guestId, kind: 'expense', amount: '60.00', categoryId: 'food', note: 'ข้าว', occurredAt: new Date('2026-09-01T05:00:00Z'), source: 'line', parsedBy: 'rule' },
 			{ userId: guestId, kind: 'expense', amount: '80.00', categoryId: 'food', note: 'กาแฟ', occurredAt: new Date('2026-09-05T05:00:00Z'), source: 'line', parsedBy: 'rule' }
 		]);
+		await touchUserActivity(guestId, new Date('2026-09-07T05:00:00Z'));
 
 		const members = await listMembers();
 		const active = members.find((member) => member.lineUserId === 'Uguest');
@@ -85,10 +86,10 @@ suite('membership against a real database', async () => {
 		expect(members).toHaveLength(2);
 		expect(active?.displayName).toBe('เพื่อน');
 		expect(active?.transactionCount).toBe(2);
-		expect(active?.lastActivityAt).toEqual(new Date('2026-09-05T05:00:00Z'));
-		// Someone who never recorded anything must still appear, not be joined away.
+		expect(active?.lastActivityAt).toEqual(new Date('2026-09-07T05:00:00Z'));
+		// Activity is seeded on account creation, even before the first transaction.
 		expect(quiet?.transactionCount).toBe(0);
-		expect(quiet?.lastActivityAt).toBeNull();
+		expect(quiet?.lastActivityAt).toBeInstanceOf(Date);
 	});
 
 	it('lists a revoked member so the owner can see and undo it', async () => {

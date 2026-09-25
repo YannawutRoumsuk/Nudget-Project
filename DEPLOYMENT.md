@@ -86,7 +86,7 @@ LLM_PROVIDER=none
 - Source: GitHub repo, branch `main`
 - Builder: Dockerfile
 - Start command: `bun run cron:reminders`
-- Cron schedule: `0 2 * * *` (Railway ใช้ UTC จึงตรงกับ 09:00 ที่กรุงเทพฯ)
+- Cron schedule: `0 * * * *` (Railway ใช้ UTC; ตรวจ inactivity ทุกชั่วโมง ส่วนเตือนบิลและสรุปปิดเดือนยังส่ง 09:00 ที่กรุงเทพฯ)
 - Public domain: ไม่ต้องเปิด
 - Serverless: ไม่ต้องเปิด เพราะ cron เริ่มและจบ process เอง
 

@@ -217,7 +217,7 @@ OCR ใช้ Gemini Vision เป็นทางหลักเมื่อม�
 
 - `web`: รับ LINE webhook และให้บริการ dashboard เปิด Serverless และมี public domain
 - `Postgres`: เก็บข้อมูลกลาง ใช้ private `DATABASE_URL`
-- `reminders`: Railway Cron รัน `bun run cron:reminders` เวลา `0 2 * * *` (09:00 Asia/Bangkok) ไม่มี public domain
+- `reminders`: Railway Cron รัน `bun run cron:reminders` ทุกชั่วโมง (`0 * * * *` UTC) เพื่อเช็ก inactivity; เตือนบิลและสรุปปิดเดือนส่งตอน 09:00 Asia/Bangkok ไม่มี public domain
 
 OCR ทำใน `web` เฉพาะตอนมีรูปสลิป (`OCR_MODE=inline`) จึงไม่ต้องเปิด worker ค้างไว้ ส่วน `bun run worker:ocr` มีไว้สำหรับแยก service ภายหลังเมื่อจำนวนสลิปมากขึ้น
 
