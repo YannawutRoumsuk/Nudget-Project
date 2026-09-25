@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, notExists, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, not, notExists, notInArray, or, sql } from 'drizzle-orm';
 import { FIXED_EXPENSE_CATEGORY_IDS } from '$lib/categories';
 import { deferredBillForTransaction } from '$lib/deferred';
 import { db } from './index';
@@ -306,6 +306,26 @@ export async function getDailySeries(userId: number, range: Range, options: { ex
 		.groupBy(sql`1`, transactions.kind)
 		.orderBy(sql`1`);
 
+	const byDay = new Map<string, DayPoint>();
+	for (const row of rows) {
+		const point = byDay.get(row.day) ?? { day: row.day, income: 0, expense: 0 };
+		if (row.kind === 'income') point.income = toNumber(row.total);
+		else point.expense = toNumber(row.total);
+		byDay.set(row.day, point);
+	}
+	return [...byDay.values()];
+}
+
+/** Cashflow excludes deferred card/PayLater purchases; their money leaves on settlement instead. */
+export async function getDailyCashflowSeries(userId: number, range: Range): Promise<DayPoint[]> {
+	const rows = await db.select({ day: sql<string>`${BANGKOK_DAY}`, kind: transactions.kind, total: sql<string>`sum(${transactions.amount})` })
+		.from(transactions)
+		.where(and(
+			ownedInRange(userId, range),
+			or(not(eq(transactions.kind, 'expense')), notInArray(transactions.paymentMethod, ['credit_card', 'shopee_paylater']))
+		))
+		.groupBy(sql`1`, transactions.kind)
+		.orderBy(sql`1`);
 	const byDay = new Map<string, DayPoint>();
 	for (const row of rows) {
 		const point = byDay.get(row.day) ?? { day: row.day, income: 0, expense: 0 };

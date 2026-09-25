@@ -179,21 +179,21 @@ export async function deleteMemberBill(actor: Actor, targetUserId: number, billI
 }
 
 export type AdminPlanValues = Pick<typeof monthlyPlans.$inferInsert,
-	'month' | 'expectedIncome' | 'savingsGoal' | 'foodDailyBudget' | 'commuteDailyBudget' | 'commuteDays' | 'budgetAlertsEnabled'>;
+	'month' | 'expectedIncome' | 'expectedIncomeDay' | 'savingsGoal' | 'foodDailyBudget' | 'commuteDailyBudget' | 'commuteDays' | 'budgetAlertsEnabled'>;
 
 export async function saveMemberPlan(actor: Actor, targetUserId: number, values: AdminPlanValues) {
 	return db.transaction(async (executor) => {
 		const [before] = await executor.select().from(monthlyPlans).where(and(eq(monthlyPlans.userId, targetUserId), eq(monthlyPlans.month, values.month))).limit(1);
 		const [after] = await executor.insert(monthlyPlans).values({ ...values, userId: targetUserId, updatedAt: new Date() })
 			.onConflictDoUpdate({ target: [monthlyPlans.userId, monthlyPlans.month], set: {
-				expectedIncome: values.expectedIncome, savingsGoal: values.savingsGoal,
+				expectedIncome: values.expectedIncome, expectedIncomeDay: values.expectedIncomeDay, savingsGoal: values.savingsGoal,
 				foodDailyBudget: values.foodDailyBudget, commuteDailyBudget: values.commuteDailyBudget,
 				commuteDays: values.commuteDays, budgetAlertsEnabled: values.budgetAlertsEnabled, updatedAt: new Date()
 			} }).returning();
 		await audit(executor, actor, targetUserId, {
 			action: before ? 'update' : 'create', entity: 'monthly_plan', entityId: values.month,
 			before: before ?? null,
-			after: { month: after.month, expectedIncome: after.expectedIncome, savingsGoal: after.savingsGoal, foodDailyBudget: after.foodDailyBudget, commuteDailyBudget: after.commuteDailyBudget, commuteDays: after.commuteDays, budgetAlertsEnabled: after.budgetAlertsEnabled }
+			after: { month: after.month, expectedIncome: after.expectedIncome, expectedIncomeDay: after.expectedIncomeDay, savingsGoal: after.savingsGoal, foodDailyBudget: after.foodDailyBudget, commuteDailyBudget: after.commuteDailyBudget, commuteDays: after.commuteDays, budgetAlertsEnabled: after.budgetAlertsEnabled }
 		});
 		return after;
 	});

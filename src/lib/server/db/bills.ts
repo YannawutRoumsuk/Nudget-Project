@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, gte, lt } from 'drizzle-orm';
 import { billDueDate, billPeriod } from '$lib/bills';
 import { bangkokMonthKey } from '$lib/utils/date';
 import { toNumber } from '$lib/utils/money';
@@ -43,6 +43,15 @@ export async function listBills(userId: number, reference = new Date(), includeI
 	const payments = await db.select().from(billPayments).where(eq(billPayments.userId, userId));
 	const paidByKey = new Map(payments.map((payment) => [`${payment.billId}:${payment.period}`, payment]));
 	return rows.map((bill) => toBillView(bill, reference, paidByKey.get(`${bill.id}:${billPeriod(bill, reference)}`)));
+}
+
+/** Deferred card/PayLater obligations become cash outflows only when actually paid. */
+export async function listDeferredBillPayments(userId: number, range: { from: Date; to: Date }) {
+	const rows = await db.select({ billId: bills.id, name: bills.name, amount: bills.amount, paidAt: billPayments.paidAt })
+		.from(billPayments)
+		.innerJoin(bills, and(eq(bills.id, billPayments.billId), eq(bills.userId, billPayments.userId)))
+		.where(and(eq(billPayments.userId, userId), eq(bills.noExpenseOnPay, true), gte(billPayments.paidAt, range.from), lt(billPayments.paidAt, range.to)));
+	return rows.map((row) => ({ ...row, amount: toNumber(row.amount) }));
 }
 
 export async function getBill(id: number, userId: number): Promise<Bill | null> {

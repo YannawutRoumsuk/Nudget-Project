@@ -155,6 +155,13 @@
       "when": 1790317678976,
       "tag": "0021_month_close",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790318723347,
+      "tag": "0022_planned_income_day",
+      "breakpoints": true
     }
   ]
 }

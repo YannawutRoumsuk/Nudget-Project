@@ -91,6 +91,7 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 		monthlyPlans: planRows.map((row) => ({
 			month: row.month,
 			expectedIncome: row.expectedIncome,
+			expectedIncomeDay: row.expectedIncomeDay,
 			savingsGoal: row.savingsGoal,
 			foodDailyBudget: row.foodDailyBudget,
 			commuteDailyBudget: row.commuteDailyBudget,

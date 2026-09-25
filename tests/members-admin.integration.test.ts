@@ -72,7 +72,7 @@ suite('owner support member mode', async () => {
 		expect(await deleteMemberTransaction({ userId: actorId, lineUserId: adminLineId }, targetId, foreignTx.id)).toBe(false);
 		await updateMemberBill({ userId: actorId, lineUserId: adminLineId }, targetId, bill.id, { amount: '550.00', name: 'ค่าเน็ตแก้แล้ว' });
 		await saveMemberPlan({ userId: actorId, lineUserId: adminLineId }, targetId, {
-			month: '2026-09', expectedIncome: '30000.00', savingsGoal: '3000.00', foodDailyBudget: '250.00',
+			month: '2026-09', expectedIncome: '30000.00', expectedIncomeDay: 25, savingsGoal: '3000.00', foodDailyBudget: '250.00',
 			commuteDailyBudget: '100.00', commuteDays: 20, budgetAlertsEnabled: true
 		});
 		await saveMemberCategoryBudget({ userId: actorId, lineUserId: adminLineId }, targetId, { month: '2026-09', categoryId: 'food', amount: '6000.00' });

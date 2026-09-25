@@ -85,6 +85,7 @@ export const monthlyPlans = pgTable(
 		userId: ownerId(),
 		month: varchar('month', { length: 7 }).notNull(),
 		expectedIncome: numeric('expected_income', { precision: 12, scale: 2 }).notNull().default('0'),
+		expectedIncomeDay: integer('expected_income_day').notNull().default(1),
 		savingsGoal: numeric('savings_goal', { precision: 12, scale: 2 }).notNull().default('0'),
 		foodDailyBudget: numeric('food_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
 		commuteDailyBudget: numeric('commute_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
