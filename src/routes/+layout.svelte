@@ -17,6 +17,7 @@
 		{ href: '/cashflow', label: 'กระแสเงินสด' },
 		{ href: '/forecast', label: 'คาดการณ์' },
 		{ href: '/score', label: 'สุขภาพการเงิน' },
+		{ href: '/report', label: 'รายงานเดือน' },
 		{ href: '/recurring', label: 'รายการประจำ' },
 		{ href: '/learned-categories', label: 'กฎหมวดหมู่' },
 		{ href: '/import', label: 'นำเข้า CSV' },
