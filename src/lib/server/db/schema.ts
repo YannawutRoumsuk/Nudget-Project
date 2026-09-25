@@ -4,6 +4,7 @@ import {
 	date,
 	index,
 	integer,
+	jsonb,
 	numeric,
 	pgTable,
 	primaryKey,
@@ -51,6 +52,8 @@ export const users = pgTable('users', {
 	 * cascade away every baht the person ever recorded.
 	 */
 	active: boolean('active').notNull().default(true),
+	/** Private owner-only support note; never included in member-facing responses. */
+	memberNote: text('member_note').notNull().default(''),
 	/** Last authenticated web or LINE interaction, independent of backdated ledger entries. */
 	lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
 	notificationsEnabled: boolean('notifications_enabled').notNull().default(true),
@@ -291,6 +294,23 @@ export const systemEvents = pgTable(
 		index('system_events_type_created_idx').on(t.eventType, t.createdAt),
 		index('system_events_created_at_idx').on(t.createdAt)
 	]
+);
+
+/** Owner-only audit trail for support actions; account deletion cascades its data. */
+export const adminAuditLogs = pgTable(
+	'admin_audit_logs',
+	{
+		id: serial('id').primaryKey(),
+		actorUserId: integer('actor_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+		actorLineUserId: text('actor_line_user_id').notNull(),
+		targetUserId: integer('target_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+		action: varchar('action', { length: 24 }).notNull(),
+		entity: varchar('entity', { length: 24 }).notNull(),
+		entityId: varchar('entity_id', { length: 64 }).notNull(),
+		changes: jsonb('changes').$type<{ before: unknown; after: unknown }>().notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('admin_audit_target_created_idx').on(t.targetUserId, t.createdAt)]
 );
 
 /**

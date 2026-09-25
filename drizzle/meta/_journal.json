@@ -141,6 +141,13 @@
       "when": 1790313905163,
       "tag": "0019_zippy_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790314657297,
+      "tag": "0020_gorgeous_rocket_racer",
+      "breakpoints": true
     }
   ]
 }
