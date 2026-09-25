@@ -10,11 +10,11 @@ import {
 } from '$lib/export';
 import { bangkokDayKey } from '$lib/utils/date';
 import { db } from './index';
-import { billPayments, bills, categories, monthlyPlans, savingsGoalContributions, savingsGoals, transactions, userCategoryRules, users, whatIfScenarios } from './schema';
+import { billPayments, bills, categories, monthlyPlans, recurringDecisions, savingsGoalContributions, savingsGoals, transactions, userCategoryRules, users, whatIfScenarios } from './schema';
 
 export async function getPersonalExport(userId: number, selection: ExportSelection, now = new Date()): Promise<PersonalExport> {
 	const months = exportMonthKeys(selection);
-	const [accountRows, transactionRows, billRows, paymentRows, planRows, learnedRows, scenarioRows, goalRows, contributionRows] = await Promise.all([
+	const [accountRows, transactionRows, billRows, paymentRows, planRows, learnedRows, scenarioRows, goalRows, contributionRows, decisionRows] = await Promise.all([
 		db.select({ displayName: users.displayName, createdAt: users.createdAt }).from(users).where(eq(users.id, userId)).limit(1),
 		db.select().from(transactions)
 			.where(and(
@@ -42,7 +42,8 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 		db.select().from(savingsGoals).where(eq(savingsGoals.userId, userId)).orderBy(asc(savingsGoals.priority), asc(savingsGoals.id)),
 		db.select({ goalId: savingsGoalContributions.goalId, goalName: savingsGoals.name, amount: savingsGoalContributions.amount, createdAt: savingsGoalContributions.createdAt })
 			.from(savingsGoalContributions).innerJoin(savingsGoals, eq(savingsGoals.id, savingsGoalContributions.goalId))
-			.where(eq(savingsGoalContributions.userId, userId)).orderBy(asc(savingsGoalContributions.createdAt), asc(savingsGoalContributions.id))
+			.where(eq(savingsGoalContributions.userId, userId)).orderBy(asc(savingsGoalContributions.createdAt), asc(savingsGoalContributions.id)),
+		db.select().from(recurringDecisions).where(eq(recurringDecisions.userId, userId)).orderBy(asc(recurringDecisions.merchantKey))
 	]);
 
 	const exportedTransactions = transactionRows.map((row) => ({
@@ -63,7 +64,7 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 	const account = accountRows[0];
 
 	return {
-		schemaVersion: 4,
+		schemaVersion: 5,
 		generatedAt: formatBangkokDateTime(now),
 		timezone: EXPORT_TIMEZONE,
 		selection: { from: selection.fromKey, to: selection.toKey },
@@ -75,6 +76,7 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 			whatIfScenarios: 'all_saved',
 			savingsGoals: 'all_saved',
 			savingsGoalContributions: 'all_saved',
+			recurringDecisions: 'all_saved',
 			bills: 'all_saved'
 		},
 		account: account ? { displayName: account.displayName, createdAt: formatBangkokDateTime(account.createdAt) } : null,
@@ -123,6 +125,8 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 			monthlyContribution: row.monthlyContribution, priority: row.priority, status: row.status,
 			createdAt: formatBangkokDateTime(row.createdAt), updatedAt: formatBangkokDateTime(row.updatedAt) })),
 		savingsGoalContributions: contributionRows.map((row) => ({ goalId: row.goalId, goalName: row.goalName,
-			amount: row.amount, createdAt: formatBangkokDateTime(row.createdAt) }))
+			amount: row.amount, createdAt: formatBangkokDateTime(row.createdAt) })),
+		recurringDecisions: decisionRows.map((row) => ({ merchantKey: row.merchantKey, status: row.status,
+			billId: row.billId, updatedAt: formatBangkokDateTime(row.updatedAt) }))
 	};
 }

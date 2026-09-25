@@ -183,6 +183,13 @@
       "when": 1790325614579,
       "tag": "0025_savings_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790327153456,
+      "tag": "0026_recurring_decisions",
+      "breakpoints": true
     }
   ]
 }

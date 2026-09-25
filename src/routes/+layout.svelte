@@ -16,6 +16,7 @@
 		{ href: '/what-if', label: 'ทดลองแผน' },
 		{ href: '/cashflow', label: 'กระแสเงินสด' },
 		{ href: '/forecast', label: 'คาดการณ์' },
+		{ href: '/recurring', label: 'รายการประจำ' },
 		{ href: '/learned-categories', label: 'กฎหมวดหมู่' },
 		{ href: '/import', label: 'นำเข้า CSV' },
 		{ href: '/export', label: 'ส่งออก' },

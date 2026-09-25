@@ -223,6 +223,22 @@ export const bills = pgTable(
 	]
 );
 
+export type RecurringDecisionStatus = 'confirmed' | 'dismissed' | 'not_recurring';
+
+/** Per-owner memory of recurring suggestions prevents rejected candidates from resurfacing. */
+export const recurringDecisions = pgTable(
+	'recurring_decisions',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		merchantKey: varchar('merchant_key', { length: 120 }).notNull(),
+		status: varchar('status', { length: 16 }).notNull().$type<RecurringDecisionStatus>(),
+		billId: integer('bill_id').references(() => bills.id, { onDelete: 'set null' }),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [uniqueIndex('recurring_decisions_user_merchant_idx').on(t.userId, t.merchantKey)]
+);
+
 export const transactions = pgTable(
 	'transactions',
 	{
