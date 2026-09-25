@@ -12,6 +12,7 @@
 		{ href: '/bills', label: 'บิล' },
 		{ href: '/cards', label: 'บัตรเครดิต' },
 		{ href: '/plan', label: 'แผนเดือน' },
+		{ href: '/what-if', label: 'ทดลองแผน' },
 		{ href: '/cashflow', label: 'กระแสเงินสด' },
 		{ href: '/learned-categories', label: 'กฎหมวดหมู่' },
 		{ href: '/import', label: 'นำเข้า CSV' },
