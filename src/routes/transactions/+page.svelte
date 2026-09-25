@@ -27,6 +27,7 @@
 	const activeCategory = $derived(
 		data.filters.categoryId ? getCategory(data.filters.categoryId) : null
 	);
+	const paymentLabels: Record<string, string> = { bank: 'บัญชีธนาคาร', cash: 'เงินสด', credit_card: 'บัตรเครดิต', shopee_paylater: 'Shopee PayLater', wallet: 'กระเป๋าเงิน' };
 </script>
 
 <svelte:head>
@@ -60,6 +61,9 @@
 			{activeCategory.icon}
 			{activeCategory.nameTh} ✕
 		</a>
+	{/if}
+	{#if data.filters.paymentMethod}
+		<a class="chip-clear" href={withParam('payment', null)}>{paymentLabels[data.filters.paymentMethod] ?? data.filters.paymentMethod} ✕</a>
 	{/if}
 
 	<p class="totals num">

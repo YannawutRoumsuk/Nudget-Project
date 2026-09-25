@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 	listBills: vi.fn(), markBillPaid: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), touchUserActivity: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
-	claimEvent: vi.fn(), answerAiHelp: vi.fn(),
+	claimEvent: vi.fn(), answerAiHelp: vi.fn(), answerFinanceQuestion: vi.fn(),
 	buildMonthlyLineSummary: vi.fn(),
 	updateLatestTransactionNote: vi.fn(),
 	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, llm: { helpDailyLimit: 3 }, publicBaseUrl: 'https://nudget.example' }
@@ -35,6 +35,7 @@ vi.mock('$lib/server/db/feedback', () => ({
 }));
 vi.mock('$lib/server/db/queries', () => mocks);
 vi.mock('$lib/server/help/generate', () => ({ answerAiHelp: mocks.answerAiHelp }));
+vi.mock('$lib/server/finance-query', () => ({ answerFinanceQuestion: mocks.answerFinanceQuestion }));
 vi.mock('$lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: mocks.buildMonthlyLineSummary }));
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
@@ -123,6 +124,7 @@ beforeEach(() => {
 	mocks.claimPendingAction.mockResolvedValue(true);
 	mocks.claimEvent.mockResolvedValue(true);
 	mocks.answerAiHelp.mockResolvedValue({ text: 'เปิดเว็บแล้วกดหน้าแผนเดือน', remaining: 9 });
+	mocks.answerFinanceQuestion.mockResolvedValue('รายจ่าย 1–7 ก.ย. 2569: ฿840');
 	mocks.buildMonthlyLineSummary.mockResolvedValue({ text: 'สรุปพร้อม AI', hasData: true, usedAi: true });
 	mocks.processPendingSlip.mockResolvedValue(true);
 	mocks.createFeedback.mockImplementation(async (values) => ({ id: 5, createdAt: new Date(event.timestamp!), status: 'new', resolvedAt: null, ...values }));
@@ -138,6 +140,14 @@ beforeEach(() => {
 });
 
 describe('LINE processing', () => {
+	it('routes natural-language finance questions to the bounded query before expense parsing', async () => {
+		await handleEvents([{ ...event, message: { ...event.message!, text: 'อาทิตย์นี้กินข้าวไปเท่าไร' } }]);
+		expect(mocks.claimEvent).toHaveBeenCalledWith('event-1');
+		expect(mocks.answerFinanceQuestion).toHaveBeenCalledWith(owner.id, 'อาทิตย์นี้กินข้าวไปเท่าไร', expect.any(Date));
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('฿840'));
+		expect(mocks.parseMessage).not.toHaveBeenCalled();
+	});
+
 	it('marks an owned bill paid exactly once from its current notification', async () => {
 		mocks.listBills.mockResolvedValue([{ id: 8, name: 'ค่าไฟ', period: '2026-09', paid: false }]);
 		await handleEvents([{

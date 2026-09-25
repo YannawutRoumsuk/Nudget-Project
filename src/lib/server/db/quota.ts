@@ -3,7 +3,7 @@ import { bangkokDayKey } from '$lib/utils/date';
 import { db } from './index';
 import { llmQuota, llmUsage } from './schema';
 
-export type LlmWorkflow = 'parser' | 'ocr' | 'insights' | 'help';
+export type LlmWorkflow = 'parser' | 'ocr' | 'insights' | 'help' | 'finance_query';
 
 /**
  * A paid model call has to be claimed before it is made, in one statement.
