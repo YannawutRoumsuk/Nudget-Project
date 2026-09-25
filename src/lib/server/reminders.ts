@@ -8,6 +8,8 @@ import { config } from './config';
 import { pushText } from './line/client';
 import { buildMonthlyLineSummary } from './monthly-summary';
 
+export const INACTIVITY_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export function reminderKey(billId: number, dueDate: Date): string {
 	return `${billId}:${bangkokDayKey(dueDate)}:${config.reminders.daysBefore}`;
 }
@@ -38,25 +40,50 @@ export async function runReminderCheck(now = new Date()): Promise<void> {
 }
 
 async function remindUser(user: User, now: Date): Promise<void> {
-	const bills = await listBills(user.id, now);
-	const due = bills.filter((bill) => {
-		const date = billDueDate(bill, now);
-		return !bill.paid && date && shouldRemind(date, now, config.reminders.daysBefore);
-	});
-	for (const bill of due) {
-		const dueDate = billDueDate(bill, now)!;
-		const key = reminderKey(bill.id, dueDate);
-		if (!(await claimReminderDelivery(key, user.id))) continue;
-		const { day, month, year } = bangkokParts(dueDate);
-		try {
-			const sent = await pushText(user.lineUserId, `🔔 เตือนบิล\n${bill.name} ${bill.amount.toLocaleString('th-TH')} บาท\nครบกำหนด ${day}/${month}/${year}`);
-			if (!sent) await releaseReminderDelivery(key);
-		} catch (error) {
-			await releaseReminderDelivery(key);
-			throw error;
+	if (bangkokParts(now).hour === config.reminders.hour) {
+		const bills = await listBills(user.id, now);
+		const due = bills.filter((bill) => {
+			const date = billDueDate(bill, now);
+			return !bill.paid && date && shouldRemind(date, now, config.reminders.daysBefore);
+		});
+		for (const bill of due) {
+			const dueDate = billDueDate(bill, now)!;
+			const key = reminderKey(bill.id, dueDate);
+			if (!(await claimReminderDelivery(key, user.id))) continue;
+			const { day, month, year } = bangkokParts(dueDate);
+			try {
+				const sent = await pushText(user.lineUserId, `🔔 เตือนบิล\n${bill.name} ${bill.amount.toLocaleString('th-TH')} บาท\nครบกำหนด ${day}/${month}/${year}`);
+				if (!sent) await releaseReminderDelivery(key);
+			} catch (error) {
+				await releaseReminderDelivery(key);
+				throw error;
+			}
 		}
+		if (bangkokParts(now).day === 1) await sendPreviousMonthSummary(user, now);
 	}
-	if (bangkokParts(now).day === 1) await sendPreviousMonthSummary(user, now);
+	await sendInactivityReminder(user, now);
+}
+
+export function inactivityReminderKey(user: Pick<User, 'id' | 'lastActivityAt'>, now: Date): string | null {
+	const lastActivity = user.lastActivityAt;
+	if (!lastActivity || lastActivity.getTime() > now.getTime()) return null;
+	const inactivePeriods = Math.floor((now.getTime() - lastActivity.getTime()) / INACTIVITY_REMINDER_INTERVAL_MS);
+	if (inactivePeriods < 1) return null;
+	return `inactive:${user.id}:${lastActivity.getTime()}:${inactivePeriods}`;
+}
+
+async function sendInactivityReminder(user: User, now: Date): Promise<void> {
+	const key = inactivityReminderKey(user, now);
+	if (!key || !(await claimReminderDelivery(key, user.id))) return;
+	const inactivePeriods = Number(key.slice(key.lastIndexOf(':') + 1));
+	const hours = inactivePeriods * 6;
+	try {
+		const sent = await pushText(user.lineUserId, `👋 ไม่ได้เปิด Nudget มา ${hours} ชั่วโมงแล้ว\nมีรายการหรือบิลที่อยากบันทึกไหม? ส่งข้อความเข้าแชทนี้ได้เลย`);
+		if (!sent) await releaseReminderDelivery(key);
+	} catch (error) {
+		await releaseReminderDelivery(key);
+		throw error;
+	}
 }
 
 async function sendPreviousMonthSummary(user: User, now: Date): Promise<void> {

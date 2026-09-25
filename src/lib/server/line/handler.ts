@@ -5,7 +5,7 @@ import { config, describeLlmSetup } from '$lib/server/config';
 import { answerAiHelp } from '$lib/server/help/generate';
 import { textTransactionFingerprint } from '$lib/server/dedupe';
 import { admit, isOwner } from '$lib/server/access';
-import { claimPendingAction, listMembers, pendingActionIsLive, setPendingAction } from '$lib/server/db/users';
+import { claimPendingAction, listMembers, pendingActionIsLive, setPendingAction, touchUserActivity } from '$lib/server/db/users';
 import {
 	FEEDBACK_DAILY_LIMIT,
 	FEEDBACK_MAX_LENGTH,
@@ -383,6 +383,7 @@ async function handlePostback(event: LineEvent, user: User): Promise<void> {
 async function gateOnMembership(replyToken: string, userId: string, greeting?: string): Promise<User | null> {
 	const admission = await admit(userId, () => getDisplayName(userId));
 	if (admission.status === 'member') {
+		await touchUserActivity(admission.user.id);
 		// A returning member who re-adds the bot gets a greeting; mid-conversation
 		// there is nothing to say, so the caller carries on with their message.
 		if (greeting) await replyText(replyToken, greeting);
