@@ -99,8 +99,15 @@ export interface ExportSavingsGoalContribution {
 	createdAt: string;
 }
 
+export interface ExportRecurringDecision {
+	merchantKey: string;
+	status: string;
+	billId: number | null;
+	updatedAt: string;
+}
+
 export interface PersonalExport {
-	schemaVersion: 4;
+	schemaVersion: 5;
 	generatedAt: string;
 	timezone: typeof EXPORT_TIMEZONE;
 	selection: { from: string; to: string };
@@ -112,6 +119,7 @@ export interface PersonalExport {
 		whatIfScenarios: 'all_saved';
 		savingsGoals: 'all_saved';
 		savingsGoalContributions: 'all_saved';
+		recurringDecisions: 'all_saved';
 		bills: 'all_saved';
 	};
 	account: { displayName: string; createdAt: string } | null;
@@ -124,6 +132,7 @@ export interface PersonalExport {
 	whatIfScenarios: ExportWhatIfScenario[];
 	savingsGoals: ExportSavingsGoal[];
 	savingsGoalContributions: ExportSavingsGoalContribution[];
+	recurringDecisions: ExportRecurringDecision[];
 }
 
 export function parseExportSelection(params: URLSearchParams, now = new Date()): ExportSelection {

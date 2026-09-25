@@ -12,7 +12,7 @@ import {
 
 function fixture(): PersonalExport {
 	return {
-		schemaVersion: 4,
+		schemaVersion: 5,
 		generatedAt: '2026-09-07T09:30:00+07:00',
 		timezone: 'Asia/Bangkok',
 		selection: { from: '2026-08-31', to: '2026-09-02' },
@@ -24,6 +24,7 @@ function fixture(): PersonalExport {
 			whatIfScenarios: 'all_saved',
 			savingsGoals: 'all_saved',
 			savingsGoalContributions: 'all_saved',
+			recurringDecisions: 'all_saved',
 			bills: 'all_saved'
 		},
 		account: { displayName: 'คุณทดสอบ', createdAt: '2026-01-01T00:00:00+07:00' },
@@ -40,7 +41,8 @@ function fixture(): PersonalExport {
 		learnedCategories: [{ keyword: 'grab', categoryId: 'transport', categoryNameTh: 'เดินทาง', matchCount: 2, savedLlmCalls: 1, createdAt: '2026-01-01T00:00:00+07:00', updatedAt: '2026-09-01T00:00:00+07:00' }],
 		whatIfScenarios: [{ month: '2026-09', name: 'ทดสอบ', changes: [], createdAt: '2026-09-01T00:00:00+07:00', updatedAt: '2026-09-01T00:00:00+07:00' }],
 		savingsGoals: [],
-		savingsGoalContributions: []
+		savingsGoalContributions: [],
+		recurringDecisions: []
 	};
 }
 
