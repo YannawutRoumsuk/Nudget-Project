@@ -1,0 +1,1 @@
+ALTER TABLE "savings_goals" ADD COLUMN "goal_type" varchar(12) DEFAULT 'planned' NOT NULL;

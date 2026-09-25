@@ -16,14 +16,14 @@ export async function listGoalContributions(userId: number) {
 }
 
 export async function createSavingsGoal(input: {
-	userId: number; name: string; targetAmount: string; currentAmount: string; targetDate: Date | null;
+	userId: number; name: string; goalType: 'emergency' | 'planned'; targetAmount: string; currentAmount: string; targetDate: Date | null;
 	monthlyContribution: string; priority: number;
 }) {
 	return db.insert(savingsGoals).values({ ...input, status: Number(input.currentAmount) >= Number(input.targetAmount) ? 'completed' : 'active' }).returning();
 }
 
 export async function updateSavingsGoal(userId: number, id: number, input: {
-	name: string; targetAmount: string; targetDate: Date | null; monthlyContribution: string; priority: number;
+	name: string; goalType: 'emergency' | 'planned'; targetAmount: string; targetDate: Date | null; monthlyContribution: string; priority: number;
 }) {
 	return db.update(savingsGoals).set({ ...input,
 		status: sql`case when ${savingsGoals.currentAmount} >= ${input.targetAmount}::numeric then 'completed' else ${savingsGoals.status} end`,

@@ -97,6 +97,7 @@ export const monthlyPlans = pgTable(
 );
 
 export type SavingsGoalStatus = 'active' | 'paused' | 'closed' | 'completed';
+export type SavingsGoalType = 'emergency' | 'planned';
 
 /** User-owned sinking funds. Contributions are transfers between pockets, not expenses. */
 export const savingsGoals = pgTable(
@@ -105,6 +106,7 @@ export const savingsGoals = pgTable(
 		id: serial('id').primaryKey(),
 		userId: ownerId(),
 		name: text('name').notNull(),
+		goalType: varchar('goal_type', { length: 12 }).notNull().default('planned').$type<SavingsGoalType>(),
 		targetAmount: numeric('target_amount', { precision: 12, scale: 2 }).notNull(),
 		currentAmount: numeric('current_amount', { precision: 12, scale: 2 }).notNull().default('0'),
 		targetDate: date('target_date', { mode: 'date' }),

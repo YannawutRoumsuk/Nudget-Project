@@ -82,6 +82,7 @@ export interface ExportWhatIfScenario {
 export interface ExportSavingsGoal {
 	id: number;
 	name: string;
+	goalType: string;
 	targetAmount: string;
 	currentAmount: string;
 	targetDate: string | null;
@@ -107,7 +108,7 @@ export interface ExportRecurringDecision {
 }
 
 export interface PersonalExport {
-	schemaVersion: 5;
+	schemaVersion: 6;
 	generatedAt: string;
 	timezone: typeof EXPORT_TIMEZONE;
 	selection: { from: string; to: string };

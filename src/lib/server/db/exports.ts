@@ -64,7 +64,7 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 	const account = accountRows[0];
 
 	return {
-		schemaVersion: 5,
+		schemaVersion: 6,
 		generatedAt: formatBangkokDateTime(now),
 		timezone: EXPORT_TIMEZONE,
 		selection: { from: selection.fromKey, to: selection.toKey },
@@ -120,7 +120,7 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 		})),
 		whatIfScenarios: scenarioRows.map((row) => ({ month: row.month, name: row.name, changes: row.changes,
 			createdAt: formatBangkokDateTime(row.createdAt), updatedAt: formatBangkokDateTime(row.updatedAt) })),
-		savingsGoals: goalRows.map((row) => ({ id: row.id, name: row.name, targetAmount: row.targetAmount,
+		savingsGoals: goalRows.map((row) => ({ id: row.id, name: row.name, goalType: row.goalType, targetAmount: row.targetAmount,
 			currentAmount: row.currentAmount, targetDate: row.targetDate ? bangkokDayKey(row.targetDate) : null,
 			monthlyContribution: row.monthlyContribution, priority: row.priority, status: row.status,
 			createdAt: formatBangkokDateTime(row.createdAt), updatedAt: formatBangkokDateTime(row.updatedAt) })),
