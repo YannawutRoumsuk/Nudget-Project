@@ -40,7 +40,7 @@ import {
 import type { Feedback, NewTransaction, PendingSlip, User } from '$lib/server/db/schema';
 import { processPendingSlip } from '$lib/server/ocr/processor';
 import { matchCommand, parseEntries, parseMessage } from '$lib/server/parser';
-import type { BotCommand, HelpTopic, InstallmentPlan, ParseOutcome } from '$lib/server/parser';
+import type { BotCommand, HelpTopic, InstallmentPlan, ParsedTransaction, ParseOutcome } from '$lib/server/parser';
 import {
 	addDays,
 	addMonths,
@@ -57,6 +57,7 @@ import { formatNumber, toNumber } from '$lib/utils/money';
 import { getDisplayName, pushText, replyQuickReplies, replyText } from './client';
 import { buildMonthlyLineSummary } from '../monthly-summary';
 import { answerFinanceQuestion } from '../finance-query';
+import { recordLearnedCategoryMatch, rememberCategoryFromEdit } from '../db/learned-categories';
 import { isQuietHour } from '$lib/reminder-time';
 import { isValidTimeZone, parseNotificationCommand } from '$lib/notification-settings';
 import {
@@ -453,6 +454,7 @@ async function handlePostback(event: LineEvent, user: User): Promise<void> {
 						? { kind: 'duplicate-slip', slip: restored }
 						: 'รายการนี้ถูกบันทึกหรือยกเลิกไปแล้ว';
 				}
+				await rememberCategoryFromEdit(user.id, saved.categoryId, claimed.note, claimed.recipient ?? '', executor);
 				await deleteOwnedPendingSlip(claimed.id, user.id, executor);
 				return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY.expense);
 			}
@@ -653,7 +655,12 @@ async function respondTo(
 		? await insertTransaction(values, executor)
 		: await insertTransactionIfUnique({ ...values, fingerprint: textTransactionFingerprint(tx, sentAt) }, executor);
 	if (!saved) return duplicateTextWarning(text);
+	await recordParserLearning(tx, user.id, executor);
 	return confirmSaved(saved, saved.categoryId === FALLBACK_CATEGORY[saved.kind]);
+}
+
+async function recordParserLearning(tx: ParsedTransaction, userId: number, executor: DbExecutor): Promise<void> {
+	if (typeof tx.learnedRuleId === 'number') await recordLearnedCategoryMatch(tx.learnedRuleId, userId, Boolean(tx.learnedAvoidedLlm), executor);
 }
 
 async function runCommand(command: BotCommand, user: User, executor: DbExecutor): Promise<LineResponse> {
@@ -778,7 +785,10 @@ async function saveBatch(
 					? baseFingerprint
 					: textTransactionFingerprint(tx, sentAt, occurrenceIndex)
 			}, executor);
-		if (row) saved.push(row);
+		if (row) {
+			saved.push(row);
+			await recordParserLearning(tx, user.id, executor);
+		}
 		else duplicates += 1;
 	}
 	return confirmSavedMany(saved, skipped, duplicates);

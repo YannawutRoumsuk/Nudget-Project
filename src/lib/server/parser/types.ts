@@ -10,6 +10,9 @@ export interface ParsedTransaction {
 	occurredAt: Date;
 	parsedBy: 'rule' | 'llm';
 	paymentMethod?: PaymentMethod;
+	/** Internal metadata: counted only after a deduplicated ledger insert succeeds. */
+	learnedRuleId?: number;
+	learnedAvoidedLlm?: boolean;
 }
 
 /** Sub-pages of "วิธีใช้" — each one is its own short, copy-pasteable guide. */

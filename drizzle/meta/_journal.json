@@ -162,6 +162,13 @@
       "when": 1790318723347,
       "tag": "0022_planned_income_day",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790321430349,
+      "tag": "0023_user_category_rules",
+      "breakpoints": true
     }
   ]
 }

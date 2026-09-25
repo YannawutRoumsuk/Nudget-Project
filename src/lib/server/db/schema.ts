@@ -380,6 +380,26 @@ export const aiConversations = pgTable(
 	(t) => [index('ai_conversations_user_created_idx').on(t.userId, t.createdAt)]
 );
 
+/** Private per-account merchant/category rules learned from explicit user edits. */
+export const userCategoryRules = pgTable(
+	'user_category_rules',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		keyword: varchar('keyword', { length: 64 }).notNull(),
+		categoryId: varchar('category_id', { length: 32 }).notNull().references(() => categories.id, { onDelete: 'cascade' }),
+		matchCount: integer('match_count').notNull().default(0),
+		savedLlmCalls: integer('saved_llm_calls').notNull().default(0),
+		lastMatchedAt: timestamp('last_matched_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		uniqueIndex('user_category_rules_user_keyword_idx').on(t.userId, t.keyword),
+		index('user_category_rules_user_idx').on(t.userId)
+	]
+);
+
 /**
  * One row per person per announced release. The primary key is what makes
  * `release:announce` safe to re-run after a half-finished rollout.
@@ -465,5 +485,6 @@ export type MonthlyPlan = typeof monthlyPlans.$inferSelect;
 export type PendingSlip = typeof pendingSlips.$inferSelect;
 export type Feedback = typeof feedback.$inferSelect;
 export type AiConversation = typeof aiConversations.$inferSelect;
+export type UserCategoryRule = typeof userCategoryRules.$inferSelect;
 export type ReleaseDelivery = typeof releaseDeliveries.$inferSelect;
 export type StoredInsight = typeof insights.$inferSelect;

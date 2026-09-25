@@ -10,11 +10,11 @@ import {
 } from '$lib/export';
 import { bangkokDayKey } from '$lib/utils/date';
 import { db } from './index';
-import { billPayments, bills, monthlyPlans, transactions, users } from './schema';
+import { billPayments, bills, categories, monthlyPlans, transactions, userCategoryRules, users } from './schema';
 
 export async function getPersonalExport(userId: number, selection: ExportSelection, now = new Date()): Promise<PersonalExport> {
 	const months = exportMonthKeys(selection);
-	const [accountRows, transactionRows, billRows, paymentRows, planRows] = await Promise.all([
+	const [accountRows, transactionRows, billRows, paymentRows, planRows, learnedRows] = await Promise.all([
 		db.select({ displayName: users.displayName, createdAt: users.createdAt }).from(users).where(eq(users.id, userId)).limit(1),
 		db.select().from(transactions)
 			.where(and(
@@ -33,7 +33,11 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 			.orderBy(asc(billPayments.paidAt), asc(billPayments.id)),
 		db.select().from(monthlyPlans)
 			.where(and(eq(monthlyPlans.userId, userId), inArray(monthlyPlans.month, months)))
-			.orderBy(asc(monthlyPlans.month))
+			.orderBy(asc(monthlyPlans.month)),
+		db.select({ keyword: userCategoryRules.keyword, categoryId: userCategoryRules.categoryId, categoryNameTh: categories.nameTh,
+			matchCount: userCategoryRules.matchCount, savedLlmCalls: userCategoryRules.savedLlmCalls, createdAt: userCategoryRules.createdAt, updatedAt: userCategoryRules.updatedAt })
+			.from(userCategoryRules).innerJoin(categories, eq(categories.id, userCategoryRules.categoryId))
+			.where(eq(userCategoryRules.userId, userId)).orderBy(asc(userCategoryRules.keyword))
 	]);
 
 	const exportedTransactions = transactionRows.map((row) => ({
@@ -54,7 +58,7 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 	const account = accountRows[0];
 
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		generatedAt: formatBangkokDateTime(now),
 		timezone: EXPORT_TIMEZONE,
 		selection: { from: selection.fromKey, to: selection.toKey },
@@ -62,6 +66,7 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 			transactions: 'selected_range',
 			billPayments: 'selected_range',
 			monthlyPlans: 'overlapping_months',
+			learnedCategories: 'all_saved',
 			bills: 'all_saved'
 		},
 		account: account ? { displayName: account.displayName, createdAt: formatBangkokDateTime(account.createdAt) } : null,
@@ -97,6 +102,11 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 			commuteDailyBudget: row.commuteDailyBudget,
 			commuteDays: row.commuteDays,
 			updatedAt: formatBangkokDateTime(row.updatedAt)
+		})),
+		learnedCategories: learnedRows.map((row) => ({
+			keyword: row.keyword, categoryId: row.categoryId, categoryNameTh: row.categoryNameTh,
+			matchCount: row.matchCount, savedLlmCalls: row.savedLlmCalls,
+			createdAt: formatBangkokDateTime(row.createdAt), updatedAt: formatBangkokDateTime(row.updatedAt)
 		}))
 	};
 }

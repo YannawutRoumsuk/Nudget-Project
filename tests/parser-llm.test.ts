@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({
 			parserDailyLimit: 2, maxInputChars: 500, maxOutputTokens: 150, timeoutMs: 8_000
 		}
 	},
-	claim: vi.fn(), release: vi.fn(), record: vi.fn()
+	claim: vi.fn(), release: vi.fn(), record: vi.fn(), findLearned: vi.fn(), recordLearnedMatch: vi.fn()
 }));
 
 vi.mock('../src/lib/server/config', () => ({ config: state.config }));
@@ -15,6 +15,10 @@ vi.mock('../src/lib/server/db/quota', () => ({
 	claimLlmCall: state.claim,
 	releaseLlmCall: state.release,
 	recordLlmUsage: state.record
+}));
+vi.mock('../src/lib/server/db/learned-categories', () => ({
+	findLearnedCategory: state.findLearned,
+	recordLearnedCategoryMatch: state.recordLearnedMatch
 }));
 
 const fetchMock = vi.fn();
@@ -36,6 +40,7 @@ beforeEach(() => {
 	vi.stubGlobal('fetch', fetchMock);
 	state.config.llm.provider = 'gemini';
 	state.claim.mockResolvedValue(true);
+	state.findLearned.mockResolvedValue(null);
 });
 
 describe('metered LLM parser fallback', () => {
@@ -44,6 +49,15 @@ describe('metered LLM parser fallback', () => {
 		expect(result.type).toBe('transaction');
 		expect(state.claim).not.toHaveBeenCalled();
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('uses the account learned rule before calling Gemini when built-in rules miss a category', async () => {
+		state.findLearned.mockResolvedValue({ id: 5, keyword: 'atelier', categoryId: 'shopping', kind: 'expense' });
+		const result = await parseMessage('atelier 250', NOW, { userId: 7 });
+		expect(result).toMatchObject({ type: 'transaction', tx: { amount: 250, categoryId: 'shopping' } });
+		expect(state.claim).not.toHaveBeenCalled();
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(result).toMatchObject({ type: 'transaction', tx: { learnedRuleId: 5, learnedAvoidedLlm: true } });
 	});
 
 	it('uses structured output and records token counters without the prompt', async () => {
