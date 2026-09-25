@@ -37,4 +37,18 @@ describe('monthly cashflow calendar', () => {
 		expect(result.days).toHaveLength(28);
 		expect(result.days[27].forecastIncome).toBe(1000);
 	});
+
+	it('previews moving a bill without changing any recorded transaction', () => {
+		const base = {
+			year: 2026, month: 9, openingBalance: 1000, plannedIncome: 0, plannedIncomeDay: 1,
+			actualDays: [{ day: '2026-09-01', income: 0, expense: 200 }], settlements: [], currentDay: 1, isCurrentMonth: true
+		};
+		const original = buildCashflowCalendar({ ...base, unpaidBills: [{ id: 4, name: 'ค่าเช่า', amount: 500, dueDate: new Date('2026-09-05T02:00:00.000Z') }] });
+		const moved = buildCashflowCalendar({ ...base, unpaidBills: [{ id: 4, name: 'ค่าเช่า', amount: 500, dueDate: new Date('2026-09-12T02:00:00.000Z') }] });
+		expect(original.days[4].forecastExpense).toBe(500);
+		expect(moved.days[11].forecastExpense).toBe(500);
+		expect(moved.days[4].forecastExpense).toBe(0);
+		expect(moved.days[11].endingBalance).toBe(original.days[11].endingBalance);
+		expect(original.days[4].actualExpense).toBe(moved.days[4].actualExpense);
+	});
 });

@@ -26,6 +26,7 @@ export interface CashflowEvent {
 	type: 'income' | 'expense';
 	status: 'actual' | 'forecast';
 	href?: string;
+	moveHref?: string;
 	late?: boolean;
 }
 
@@ -81,7 +82,7 @@ export function buildCashflowCalendar(input: CashflowInput): { days: CashflowDay
 		if (!target) continue;
 		const late = dueKey < target.key;
 		target.forecastExpense += bill.amount;
-		target.events.push({ title: `บิล${late ? ' เกินกำหนด' : ''} · ${bill.name}`, amount: bill.amount, type: 'expense', status: 'forecast', href: '/bills', late });
+		target.events.push({ title: `บิล${late ? ' เกินกำหนด' : ''} · ${bill.name}`, amount: bill.amount, type: 'expense', status: 'forecast', href: '/bills', moveHref: `/cashflow?month=${input.year}-${String(input.month).padStart(2, '0')}&moveBill=${bill.id}`, late });
 	}
 	const actualIncomeTotal = input.actualDays.reduce((sum, point) => sum + point.income, 0);
 	const forecastIncome = input.isCurrentMonth ? Math.max(0, input.plannedIncome - actualIncomeTotal) : 0;
