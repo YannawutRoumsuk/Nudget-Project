@@ -2,6 +2,7 @@ export type NotificationCommand =
 	| { type: 'show' }
 	| { type: 'enabled'; enabled: boolean }
 	| { type: 'hour'; hour: number }
+	| { type: 'bill-days'; days: number }
 	| { type: 'timezone'; timezone: string };
 
 export function isValidTimeZone(timezone: string): boolean {
@@ -16,6 +17,8 @@ export function parseNotificationCommand(text: string): NotificationCommand | nu
 	if (value === 'ตั้งค่าเตือน ปิด') return { type: 'enabled', enabled: false };
 	const hour = /^ตั้งค่าเตือน เวลา (\d{1,2})$/.exec(value);
 	if (hour) return { type: 'hour', hour: Number(hour[1]) };
+	const days = /^ตั้งค่าเตือน ก่อน (\d{1,2}) วัน$/.exec(value);
+	if (days) return { type: 'bill-days', days: Number(days[1]) };
 	const timezone = /^ตั้งค่าเตือน เขตเวลา ([A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)*)$/.exec(value);
 	if (timezone) return { type: 'timezone', timezone: timezone[1] };
 	return null;

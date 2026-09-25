@@ -8,6 +8,7 @@ describe('notification settings', () => {
 		expect(parseNotificationCommand('ตั้งค่าเตือน')).toEqual({ type: 'show' });
 		expect(parseNotificationCommand('ตั้งค่าเตือน ปิด')).toEqual({ type: 'enabled', enabled: false });
 		expect(parseNotificationCommand('ตั้งค่าเตือน เวลา 20')).toEqual({ type: 'hour', hour: 20 });
+		expect(parseNotificationCommand('ตั้งค่าเตือน ก่อน 5 วัน')).toEqual({ type: 'bill-days', days: 5 });
 		expect(parseNotificationCommand('ตั้งค่าเตือน เขตเวลา America/Indiana/Indianapolis')).toEqual({ type: 'timezone', timezone: 'America/Indiana/Indianapolis' });
 		expect(parseNotificationCommand('ตั้งค่าเตือน เขตเวลา UTC')).toEqual({ type: 'timezone', timezone: 'UTC' });
 		expect(parseNotificationCommand('เตือน 20')).toBeNull();

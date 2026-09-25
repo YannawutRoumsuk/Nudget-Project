@@ -19,6 +19,12 @@ export async function releaseReminderDelivery(key: string, executor: DbExecutor 
 	await executor.delete(reminderDeliveries).where(eq(reminderDeliveries.key, key));
 }
 
+export async function hasReminderDelivery(key: string, userId: number, executor: DbExecutor = db): Promise<boolean> {
+	const [row] = await executor.select({ key: reminderDeliveries.key }).from(reminderDeliveries)
+		.where(and(eq(reminderDeliveries.key, key), eq(reminderDeliveries.userId, userId))).limit(1);
+	return Boolean(row);
+}
+
 export interface Range {
 	from: Date;
 	/** Exclusive. */

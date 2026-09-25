@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	listUsers: vi.fn(), listBills: vi.fn(), pushText: vi.fn(),
-	claimReminderDelivery: vi.fn(), releaseReminderDelivery: vi.fn(),
+	listUsers: vi.fn(), listBills: vi.fn(), pushText: vi.fn(), pushFlex: vi.fn(),
+	claimReminderDelivery: vi.fn(), releaseReminderDelivery: vi.fn(), hasReminderDelivery: vi.fn(),
 	buildMonthlyLineSummary: vi.fn(),
 	sendBudgetThresholdAlerts: vi.fn(),
 	config: { line: { accessToken: 'token' }, reminders: { daysBefore: 3, hour: 9 } }
@@ -12,9 +12,10 @@ vi.mock('../src/lib/server/db/users', () => ({ listUsers: mocks.listUsers }));
 vi.mock('../src/lib/server/db/bills', () => ({ listBills: mocks.listBills }));
 vi.mock('../src/lib/server/db/queries', () => ({
 	claimReminderDelivery: mocks.claimReminderDelivery,
-	releaseReminderDelivery: mocks.releaseReminderDelivery
+	releaseReminderDelivery: mocks.releaseReminderDelivery,
+	hasReminderDelivery: mocks.hasReminderDelivery
 }));
-vi.mock('../src/lib/server/line/client', () => ({ pushText: mocks.pushText }));
+vi.mock('../src/lib/server/line/client', () => ({ pushText: mocks.pushText, pushFlex: mocks.pushFlex }));
 vi.mock('../src/lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: mocks.buildMonthlyLineSummary }));
 vi.mock('../src/lib/server/budget-alerts', () => ({ sendBudgetThresholdAlerts: mocks.sendBudgetThresholdAlerts }));
 
@@ -26,19 +27,21 @@ const now = fromBangkok(2026, 9, 7, 9);
 function user(id: number, lineUserId: string, lastActivityAt = fromBangkok(2026, 9, 7, 8)) {
 	return {
 		id, lineUserId, lastActivityAt, notificationsEnabled: true, notificationHour: 9,
-		timezone: 'Asia/Bangkok', quietHoursStart: 22, quietHoursEnd: 7
+		timezone: 'Asia/Bangkok', quietHoursStart: 22, quietHoursEnd: 7, billReminderDaysBefore: 3
 	};
 }
 
 function bill(id: number, name: string) {
-	return { id, name, amount: 500, recurrence: 'once' as const, dueDay: null, dueDate: fromBangkok(2026, 9, 10, 9), paid: false, active: true };
+	return { id, name, amount: 500, period: '2026-09-10', recurrence: 'once' as const, dueDay: null, dueDate: fromBangkok(2026, 9, 10, 9), paid: false, active: true };
 }
 
 beforeEach(() => {
 	vi.resetAllMocks();
 	mocks.config.line.accessToken = 'token';
 	mocks.claimReminderDelivery.mockResolvedValue(true);
+	mocks.hasReminderDelivery.mockResolvedValue(false);
 	mocks.pushText.mockResolvedValue(true);
+	mocks.pushFlex.mockResolvedValue(true);
 	mocks.buildMonthlyLineSummary.mockResolvedValue({ text: 'สรุปเดือนก่อน', hasData: true, usedAi: true });
 });
 
@@ -74,9 +77,10 @@ describe('bill reminders', () => {
 
 		expect(mocks.listBills).toHaveBeenCalledWith(1, now);
 		expect(mocks.listBills).toHaveBeenCalledWith(2, now);
-		expect(mocks.pushText).toHaveBeenCalledWith('owner', expect.stringContaining('ค่าไฟ'));
-		expect(mocks.pushText).toHaveBeenCalledWith('partner', expect.stringContaining('ค่าน้ำ'));
-		expect(mocks.pushText).not.toHaveBeenCalledWith('owner', expect.stringContaining('ค่าน้ำ'));
+		const sent = mocks.pushFlex.mock.calls.map(([, , contents]) => JSON.stringify(contents));
+		expect(sent.some((text) => text.includes('ค่าไฟ'))).toBe(true);
+		expect(sent.some((text) => text.includes('ค่าน้ำ'))).toBe(true);
+		expect(sent.some((text) => text.includes('owner'))).toBe(false);
 	});
 
 	it('claims the delivery under the owning account', async () => {
@@ -91,7 +95,25 @@ describe('bill reminders', () => {
 		mocks.listBills.mockResolvedValue([bill(20, 'ค่าน้ำ')]);
 		await runReminderCheck(fromBangkok(2026, 9, 10, 9));
 		expect(mocks.claimReminderDelivery).toHaveBeenCalledWith('20:2026-09-10:0', 2);
-		expect(mocks.pushText).toHaveBeenCalledWith('partner', expect.stringContaining('ครบกำหนดวันนี้'));
+		expect(JSON.stringify(mocks.pushFlex.mock.calls[0]?.[2])).toContain('ครบกำหนดวันนี้');
+	});
+
+	it('reminds about an unpaid one-time bill each day after it is overdue', async () => {
+		mocks.listUsers.mockResolvedValue([user(2, 'partner')]);
+		mocks.listBills.mockResolvedValue([bill(20, 'ค่าน้ำ')]);
+		const nextDay = fromBangkok(2026, 9, 11, 9);
+		await runReminderCheck(nextDay);
+		expect(mocks.claimReminderDelivery).toHaveBeenCalledWith('bill:20:2026-09-10:overdue:2026-09-11', 2);
+		expect(JSON.stringify(mocks.pushFlex.mock.calls[0]?.[2])).toContain('เกินกำหนดแล้ว');
+	});
+
+	it('honors a snooze for the rest of the current day', async () => {
+		mocks.listUsers.mockResolvedValue([user(2, 'partner')]);
+		mocks.listBills.mockResolvedValue([bill(20, 'ค่าน้ำ')]);
+		mocks.hasReminderDelivery.mockResolvedValue(true);
+		await runReminderCheck(now);
+		expect(mocks.pushFlex).not.toHaveBeenCalled();
+		expect(mocks.claimReminderDelivery).not.toHaveBeenCalledWith(expect.stringContaining('20:'), 2);
 	});
 
 	it('keeps delivering to other accounts when one push fails', async () => {
@@ -101,10 +123,10 @@ describe('bill reminders', () => {
 			user(2, 'partner')
 		]);
 		mocks.listBills.mockResolvedValue([bill(10, 'ค่าไฟ')]);
-		mocks.pushText.mockRejectedValueOnce(new Error('LINE down'));
+		mocks.pushFlex.mockRejectedValueOnce(new Error('LINE down'));
 
 		await expect(runReminderCheck(now)).rejects.toThrow('LINE down');
-		expect(mocks.pushText).toHaveBeenCalledWith('partner', expect.stringContaining('ค่าไฟ'));
+		expect(mocks.pushFlex).toHaveBeenCalledWith('partner', expect.any(String), expect.any(Object));
 		expect(mocks.releaseReminderDelivery).toHaveBeenCalledOnce();
 		log.mockRestore();
 	});

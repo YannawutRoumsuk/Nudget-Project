@@ -18,7 +18,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		notificationHour: user.notificationHour,
 		timezone: user.timezone,
 		quietHoursStart: user.quietHoursStart,
-		quietHoursEnd: user.quietHoursEnd
+		quietHoursEnd: user.quietHoursEnd,
+		billReminderDaysBefore: user.billReminderDaysBefore
 	} };
 };
 
@@ -29,8 +30,9 @@ export const actions: Actions = {
 		const notificationHour = parseHour(form.get('notificationHour'));
 		const quietHoursStart = parseHour(form.get('quietHoursStart'));
 		const quietHoursEnd = parseHour(form.get('quietHoursEnd'));
+		const billReminderDaysBefore = Number(form.get('billReminderDaysBefore'));
 		const timezone = String(form.get('timezone') ?? '').trim();
-		if (notificationHour < 0 || quietHoursStart < 0 || quietHoursEnd < 0 || quietHoursStart === quietHoursEnd || !isValidTimeZone(timezone)) {
+		if (notificationHour < 0 || quietHoursStart < 0 || quietHoursEnd < 0 || quietHoursStart === quietHoursEnd || !Number.isInteger(billReminderDaysBefore) || billReminderDaysBefore < 0 || billReminderDaysBefore > 31 || !isValidTimeZone(timezone)) {
 			return fail(400, { message: 'ตรวจเวลา ช่วงงดรบกวน และเขตเวลาอีกครั้ง' });
 		}
 		if (isQuietHour(notificationHour, quietHoursStart, quietHoursEnd)) {
@@ -41,7 +43,8 @@ export const actions: Actions = {
 			notificationHour,
 			timezone,
 			quietHoursStart,
-			quietHoursEnd
+			quietHoursEnd,
+			billReminderDaysBefore
 		});
 		return { message: 'บันทึกการตั้งค่าแจ้งเตือนแล้ว' };
 	}

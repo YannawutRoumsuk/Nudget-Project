@@ -58,6 +58,7 @@ export const users = pgTable('users', {
 	timezone: text('timezone').notNull().default('Asia/Bangkok'),
 	quietHoursStart: integer('quiet_hours_start').notNull().default(22),
 	quietHoursEnd: integer('quiet_hours_end').notNull().default(7),
+	billReminderDaysBefore: integer('bill_reminder_days_before').notNull().default(3),
 	/**
 	 * What the bot is waiting for this person to type next, e.g. the body of a
 	 * feedback message. It lives here rather than in memory because a webhook is
