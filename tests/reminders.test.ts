@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	listUsers: vi.fn(), listBills: vi.fn(), pushText: vi.fn(),
 	claimReminderDelivery: vi.fn(), releaseReminderDelivery: vi.fn(),
 	buildMonthlyLineSummary: vi.fn(),
+	sendBudgetThresholdAlerts: vi.fn(),
 	config: { line: { accessToken: 'token' }, reminders: { daysBefore: 3, hour: 9 } }
 }));
 vi.mock('$lib/server/config', () => ({ config: mocks.config }));
@@ -15,6 +16,7 @@ vi.mock('../src/lib/server/db/queries', () => ({
 }));
 vi.mock('../src/lib/server/line/client', () => ({ pushText: mocks.pushText }));
 vi.mock('../src/lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: mocks.buildMonthlyLineSummary }));
+vi.mock('../src/lib/server/budget-alerts', () => ({ sendBudgetThresholdAlerts: mocks.sendBudgetThresholdAlerts }));
 
 import { runReminderCheck, shouldRemind } from '../src/lib/server/reminders';
 import { fromBangkok } from '../src/lib/utils/date';

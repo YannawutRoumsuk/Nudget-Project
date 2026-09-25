@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeBudget } from '../src/lib/budget';
+import { analyzeBudget, analyzeCategoryBudgets } from '../src/lib/budget';
 
 const base = {
 	expectedIncome: 30_000,
@@ -29,5 +29,14 @@ describe('budget analysis', () => {
 	});
 	it('asks for setup until income is entered', () => {
 		expect(analyzeBudget({ ...base, expectedIncome: 0 }).status).toBe('setup');
+	});
+	it('reserves unpaid card statements instead of subtracting their purchases twice', () => {
+		const result = analyzeBudget({ ...base, expense: 12_000, cashExpense: 7_000, unpaidBills: 2_000, unpaidCardBills: 3_000 });
+		expect(result.committed).toBe(12_000);
+		expect(result.remaining).toBe(13_000);
+	});
+	it('compares category spend pace with elapsed days and reports thresholds', () => {
+		const [row] = analyzeCategoryBudgets([{ categoryId: 'food', budget: 6_000, spent: 4_800 }], 10, 30);
+		expect(row).toMatchObject({ remaining: 1_200, usedPercent: 80, elapsedPercent: 33, projectedSpend: 14_400, forecastOverBudget: true, thresholdsCrossed: [50, 80] });
 	});
 });

@@ -7,6 +7,7 @@ import type { User } from './db/schema';
 import { config } from './config';
 import { pushText } from './line/client';
 import { buildMonthlyLineSummary } from './monthly-summary';
+import { sendBudgetThresholdAlerts } from './budget-alerts';
 
 export const INACTIVITY_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -40,6 +41,7 @@ export async function runReminderCheck(now = new Date()): Promise<void> {
 }
 
 async function remindUser(user: User, now: Date): Promise<void> {
+	await sendBudgetThresholdAlerts(user.id, user.lineUserId, now);
 	if (bangkokParts(now).hour === config.reminders.hour) {
 		const bills = await listBills(user.id, now);
 		const reminderOffsets = [...new Set([config.reminders.daysBefore, 0])];

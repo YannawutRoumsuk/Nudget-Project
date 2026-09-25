@@ -1,19 +1,52 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import MonthNavigator from '$lib/components/MonthNavigator.svelte';
+	import { getCategory } from '$lib/categories';
 	import { formatNumber } from '$lib/utils/money';
 	import type { PageData, ActionData } from './$types';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
-	const statusText = $derived(!data.month.isCurrent ? 'ผลจริงเทียบแผนของเดือนนี้' : data.analysis.status === 'setup' ? 'กรอกรายรับเพื่อเริ่มวิเคราะห์' : data.analysis.status === 'over' ? 'รายจ่ายรวมเกินงบแล้ว' : data.analysis.status === 'tight' ? 'ช่วงนี้ควรชะลอรายจ่าย' : 'งบเดือนนี้ยังอยู่ในแผน');
+	const statusText = $derived(!data.month.isCurrent ? 'ผลจริงเทียบแผน' : data.analysis.status === 'setup' ? 'กรอกรายรับเพื่อเริ่มวิเคราะห์' : data.analysis.status === 'over' ? 'เงินที่วางแผนไว้ไม่พอสำหรับรายจ่ายและบิลที่เหลือ' : data.analysis.status === 'tight' ? 'ช่วงนี้ควรชะลอรายจ่ายที่เลื่อนได้' : 'งบเดือนนี้ยังอยู่ในแผน');
 </script>
 <svelte:head><title>แผนเดือน · Nudget</title></svelte:head>
 <section class="head"><div><p class="eyebrow">{data.month.label}</p><h1>แผนใช้เงินรายเดือน</h1><p>{statusText}</p></div><MonthNavigator month={data.month} /></section>
 <section class="analysis">
-	<article class="card"><span>{data.month.isCurrent ? 'เหลือหลังหักบิล' : 'รายจ่ายจริง'}</span><strong class="num" class:negative={data.month.isCurrent && data.analysis.remaining < 0}>{data.month.isCurrent && data.analysis.status === 'setup' ? '—' : `฿${formatNumber(data.month.isCurrent ? data.analysis.remaining : data.expense)}`}</strong></article>
-	<article class="card"><span>{data.month.isCurrent ? 'ใช้ได้เฉลี่ยต่อวัน' : 'เหลือตามแผนสิ้นเดือน'}</span><strong class="num">{data.analysis.status === 'setup' ? '—' : `฿${formatNumber(data.month.isCurrent ? data.analysis.safeDaily : data.analysis.remaining)}`}</strong><small>{data.month.isCurrent ? `อีก ${data.analysis.daysRemaining} วัน` : 'หลังหักบิลค้าง'}</small></article>
-	<article class="card"><span>{data.month.isCurrent ? 'ค่าอาหารเฉลี่ยที่ยังใช้ได้' : 'งบอาหารคงเหลือ'}</span><strong class="num">{data.analysis.status === 'setup' ? '—' : `฿${formatNumber(data.month.isCurrent ? data.analysis.foodSafeDaily : data.analysis.foodRemaining)}`}</strong><small>{data.month.isCurrent ? 'ต่อวัน' : 'เมื่อปิดเดือน'}</small></article>
-	<article class="card"><span>{data.month.isCurrent ? 'ค่าเดินทางวันที่ไปทำงาน' : 'งบเดินทางคงเหลือ'}</span><strong class="num">{data.analysis.status === 'setup' ? '—' : `฿${formatNumber(data.month.isCurrent ? data.analysis.commuteSafeDaily : data.analysis.commuteRemaining)}`}</strong><small>{data.month.isCurrent ? 'ต่อวันทำงานที่เหลือ' : 'เมื่อปิดเดือน'}</small></article>
-	<article class="card"><span>ใช้ผ่านบัตรเครดิตแล้ว</span><strong class="num">฿{formatNumber(data.creditCardSpent)}</strong><small>รวมในรายจ่ายเดือนนี้แล้ว</small></article>
+	<article class="card"><span>รายรับจริง</span><strong class="num">฿{formatNumber(data.income)}</strong><small>ตั้งใจมี ฿{formatNumber(data.values.expectedIncome)}</small></article>
+	<article class="card"><span>รายจ่ายที่บันทึก</span><strong class="num">฿{formatNumber(data.expense)}</strong><small>รวมยอดซื้อบัตรและ PayLater แล้ว</small></article>
+	<article class="card"><span>บิลค้างที่ถึงกำหนดเดือนนี้</span><strong class="num">฿{formatNumber(data.unpaidBills + data.unpaidCardBills)}</strong><small>บิลทั่วไป ฿{formatNumber(data.unpaidBills)} · บัตร/ผ่อน ฿{formatNumber(data.unpaidCardBills)}</small></article>
+	<article class="card"><span>{data.month.isCurrent ? 'เงินเหลือใช้ได้จริง' : 'เงินเหลือตามแผน'}</span><strong class="num" class:negative={data.analysis.remaining < 0}>{data.analysis.status === 'setup' ? '—' : `฿${formatNumber(data.analysis.remaining)}`}</strong><small>หักเงินออมและเงินที่ต้องกันจ่ายแล้ว</small></article>
+	<article class="card"><span>{data.month.isCurrent ? 'ใช้ได้เฉลี่ยต่อวัน' : 'รายจ่ายเฉลี่ยต่อวัน'}</span><strong class="num">{data.analysis.status === 'setup' ? '—' : `฿${formatNumber(data.month.isCurrent ? data.analysis.safeDaily : data.expense / data.month.daysInMonth)}`}</strong><small>{data.month.isCurrent ? `อีก ${data.analysis.daysRemaining} วัน` : 'คิดจากจำนวนวันในเดือน'}</small></article>
+	<article class="card"><span>ค่าใช้บัตรเครดิตเดือนนี้</span><strong class="num">฿{formatNumber(data.creditCardSpent + data.payLaterSpent)}</strong><small>นับเป็นรายจ่ายเดือนที่ซื้อ ไม่ซ้ำตอนจ่ายบิล</small></article>
+	<article class="card"><span>{data.month.isCurrent ? 'งบอาหารที่เหลือต่อวัน' : 'อาหารเฉลี่ยต่อวัน'}</span><strong class="num">฿{formatNumber(data.month.isCurrent ? data.analysis.foodSafeDaily : data.foodSpent / data.month.daysInMonth)}</strong><small>{data.month.isCurrent ? `จากงบ ฿${formatNumber(data.values.foodDailyBudget)} ต่อวัน` : 'ตามรายการที่บันทึก'}</small></article>
+	<article class="card"><span>{data.month.isCurrent ? 'งบเดินทางต่อวันทำงาน' : 'เดินทางเฉลี่ยต่อวันทำงาน'}</span><strong class="num">฿{formatNumber(data.month.isCurrent ? data.analysis.commuteSafeDaily : data.values.commuteDays ? data.commuteSpent / data.values.commuteDays : 0)}</strong><small>{data.month.isCurrent ? `จาก ${data.analysis.daysRemaining} วันทั่วไปที่เหลือ` : `จาก ${data.values.commuteDays} วันทำงาน`}</small></article>
+</section>
+<p class="formula">คำนวณเงินใช้ได้จริงจากรายรับที่คาดไว้ − เงินออมที่ตั้ง − รายจ่ายจากเงินสด/บัญชี − บิลทั่วไปค้างจ่าย − ยอดบัตรหรือ PayLater ที่ถึงกำหนดเดือนนี้</p>
+{#if form?.message}<p class="notice" role="status">{form.message}</p>{/if}
+
+<section class="card budgets">
+	<header class="budget-head"><div><h2>งบประมาณรายหมวด</h2><p class="hint">รายการซื้อจริงรวมยอดบัตรตามเดือนที่ซื้อ ส่วนบิลทั่วไปที่ยังไม่จ่ายจะกันงบไว้ตามเดือนครบกำหนด</p></div>
+		{#if data.month.previous}<form method="POST" action="?/copyBudgets"><input type="hidden" name="month" value={data.month.key} /><button class="secondary" type="submit">คัดลอกจากเดือนก่อน</button></form>{/if}
+	</header>
+	<form method="POST" action="?/budgets" class="category-editor">
+		<input type="hidden" name="month" value={data.month.key} />
+		{#each data.categoryProgress as row (row.categoryId)}
+			{@const category = getCategory(row.categoryId)}
+			<label>{category?.icon} {category?.nameTh ?? row.categoryId}<input name={`budget_${row.categoryId}`} type="number" min="0" step="0.01" value={row.budget || ''} placeholder="ยังไม่ตั้ง" /></label>
+		{/each}
+		<button type="submit">บันทึกงบทุกหมวด</button>
+	</form>
+	<div class="category-progress">
+		{#each data.categoryProgress.filter((row) => row.budget > 0) as row (row.categoryId)}
+			{@const category = getCategory(row.categoryId)}
+			<article class="category-row">
+				<div class="category-title"><strong>{category?.icon} {category?.nameTh}</strong><span>{row.usedPercent}% ใช้แล้ว · {row.elapsedPercent}% ของเดือนผ่านไป</span></div>
+				<progress max="100" value={Math.min(100, row.usedPercent)} aria-label={`ใช้งบ${category?.nameTh} ${row.usedPercent}%`}></progress>
+				<div class="category-numbers"><span>ตั้ง ฿{formatNumber(row.budget)}</span><span>ใช้/กันไว้ ฿{formatNumber(row.spent)}</span><strong class:negative={row.remaining < 0}>เหลือ ฿{formatNumber(row.remaining)}</strong></div>
+				<p class="pace" class:negative={row.forecastOverBudget}>{row.forecastOverBudget ? `ถ้าใช้เท่านี้ต่อไป คาดว่าจะเกินงบเป็น ฿${formatNumber(row.projectedSpend)}` : 'แนวโน้มยังไม่เกินงบ'}</p>
+				<a href={`/transactions?range=month&month=${data.month.key}&kind=expense&category=${row.categoryId}`}>ดูรายการในหมวดนี้ →</a>
+			</article>
+		{/each}
+		{#if data.categoryProgress.every((row) => row.budget === 0)}<p class="hint">ยังไม่ได้ตั้งงบรายหมวด ใส่ยอดด้านบนเพื่อดูยอดคงเหลือและแนวโน้ม</p>{/if}
+	</div>
 </section>
 <form method="POST" use:enhance class="card plan-form">
 	<input type="hidden" name="month" value={data.month.key} />
@@ -23,11 +56,16 @@
 	<label>ค่าอาหารต่อวัน<input name="foodDailyBudget" type="number" min="0" step="0.01" value={data.values.foodDailyBudget} required /></label>
 	<label>ค่าเดินทางต่อวันทำงาน<input name="commuteDailyBudget" type="number" min="0" step="0.01" value={data.values.commuteDailyBudget} required /></label>
 	<label>จำนวนวันเดินทางไปทำงาน<input name="commuteDays" type="number" min="0" max="31" step="1" value={data.values.commuteDays} required /></label>
-	<div class="save"><span>{form?.message ?? ''}</span><button type="submit">บันทึกและคำนวณใหม่</button></div>
+	<label class="toggle"><input name="budgetAlertsEnabled" type="checkbox" checked={data.values.budgetAlertsEnabled} /> รับการแจ้งเตือนงบหมวดเมื่อใช้ถึง 50%, 80% และ 100%</label>
+	<div class="save"><button type="submit">บันทึกและคำนวณใหม่</button></div>
 </form>
 <style>
-	.head{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:var(--stack)}h1{font-size:var(--text-xl)}.head p:last-child{color:var(--ink-muted)}
-	.analysis{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:var(--stack-lg)}.analysis article{padding:1rem;display:flex;flex-direction:column}.analysis span,.analysis small{color:var(--ink-muted);font-size:var(--text-sm)}.analysis strong{font-size:1.6rem}.negative{color:var(--out)}
-	.plan-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;padding:1.25rem;max-width:52rem}.plan-form h2,.hint,.save{grid-column:1/-1}.hint{color:var(--ink-muted)}label{display:grid;gap:.35rem;font-size:var(--text-sm);font-weight:600}input{padding:.7rem;border:1px solid var(--rule-strong);border-radius:var(--radius);background:var(--paper-raised)}.save{display:flex;align-items:center;justify-content:flex-end;gap:1rem;color:var(--in)}button{padding:.65rem 1rem;border:0;border-radius:var(--radius);background:var(--ink);color:var(--paper-raised);cursor:pointer}
-	@media(max-width:800px){.analysis{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.analysis,.plan-form{grid-template-columns:1fr}.plan-form h2,.hint,.save{grid-column:1}}
+	.head{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:var(--stack)}h1{font-size:var(--text-xl)}.head p:last-child,.hint{color:var(--ink-muted)}
+	.analysis{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin:var(--stack) 0}.analysis article{padding:1rem;display:flex;flex-direction:column;gap:.2rem}.analysis span,.analysis small{color:var(--ink-muted);font-size:var(--text-sm)}.analysis strong{font-size:1.45rem}.negative{color:var(--out)}.formula{color:var(--ink-muted);font-size:var(--text-sm);margin-bottom:var(--stack)}
+	.budgets{padding:1.25rem;margin-bottom:var(--stack)}.budget-head{display:flex;justify-content:space-between;gap:1rem;align-items:start}.budget-head h2,.plan-form h2{margin:0}.budget-head p{margin:.35rem 0}.secondary{padding:.6rem .8rem;border:1px solid var(--rule-strong);border-radius:var(--radius);background:transparent;color:var(--ink);font:inherit;cursor:pointer}
+	.category-editor{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem;padding:1rem 0;border-bottom:1px solid var(--rule)}.category-editor label{display:grid;gap:.3rem;font-size:var(--text-sm);font-weight:600}.category-editor input,.plan-form input[type=number]{padding:.65rem;border:1px solid var(--rule-strong);border-radius:var(--radius);background:var(--paper-raised)}
+	.category-editor button,.plan-form button{justify-self:start;padding:.65rem 1rem;border:0;border-radius:var(--radius);background:var(--ink);color:var(--paper-raised);cursor:pointer}
+	.category-progress{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;padding-top:1rem}.category-row{border:1px solid var(--rule);border-radius:var(--radius);padding:.85rem}.category-title,.category-numbers{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap}.category-title span,.category-row .pace,.category-row a{font-size:var(--text-sm);color:var(--ink-muted)}.category-row progress{width:100%;height:.7rem;margin:.7rem 0;accent-color:var(--in)}.category-numbers strong.negative,.category-row .pace.negative{color:var(--out)}.category-row .pace{margin:.45rem 0}.category-row a{color:var(--accent-ink)}
+	.plan-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;padding:1.25rem;max-width:52rem}.plan-form h2,.plan-form .hint,.save{grid-column:1/-1}.plan-form label{display:grid;gap:.35rem;font-size:var(--text-sm);font-weight:600}.plan-form .toggle{display:flex;align-items:center;gap:.5rem}.save{display:flex;align-items:center;justify-content:flex-end;gap:1rem;color:var(--in)}
+	@media(max-width:800px){.analysis{grid-template-columns:repeat(2,1fr)}.category-editor{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.analysis,.plan-form,.category-editor,.category-progress{grid-template-columns:1fr}.budget-head{flex-direction:column}.plan-form h2,.plan-form .hint,.save{grid-column:1}}
 </style>
