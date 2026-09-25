@@ -8,6 +8,8 @@ import { listBills } from '$lib/server/db/bills';
 import { closeMonth, getMonthClosure, previousMonthKey } from '$lib/server/db/month-close';
 import { getMonthlyCategoryBudgets, getMonthlyPlan, replaceMonthlyCategoryBudgets, saveMonthlyPlan } from '$lib/server/db/plans';
 import { getByCategory, getPaymentMethodTotal, getTotals } from '$lib/server/db/queries';
+import { listSavingsGoals } from '$lib/server/db/savings-goals';
+import { monthlyGoalReserve, roundMoney } from '$lib/savings-goals';
 import { addMonths, bangkokMonthKey, bangkokParts, fromBangkok } from '$lib/utils/date';
 import { toNumber } from '$lib/utils/money';
 import type { Actions, PageServerLoad } from './$types';
@@ -17,11 +19,11 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const now = new Date();
 	const month = resolveMonthSelection(url.searchParams.get('month'), now);
 	const range = { from: month.from, to: month.to };
-	const [plan, totals, slices, bills, creditCardSpent, payLaterSpent, categoryBudgetRows, closure, previousClosure] = await Promise.all([
+	const [plan, totals, slices, bills, creditCardSpent, payLaterSpent, categoryBudgetRows, closure, previousClosure, savingsGoals] = await Promise.all([
 		getMonthlyPlan(userId, month.key), getTotals(userId, range), getByCategory(userId, range, 'expense'),
 		listBills(userId, month.from), getPaymentMethodTotal(userId, range, 'credit_card'),
 		getPaymentMethodTotal(userId, range, 'shopee_paylater'), getMonthlyCategoryBudgets(userId, month.key),
-		getMonthClosure(userId, month.key), getMonthClosure(userId, previousMonthKey(month.key))
+		getMonthClosure(userId, month.key), getMonthClosure(userId, previousMonthKey(month.key)), listSavingsGoals(userId)
 	]);
 	const [nextPlan, nextBudgets] = month.next
 		? await Promise.all([getMonthlyPlan(userId, month.next), getMonthlyCategoryBudgets(userId, month.next)])
@@ -54,10 +56,14 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		amount: toNumber(previousClosure.carryoverAmount),
 		fromMonth: previousClosure.month
 	} : null;
+	const goalReserve = month.isCurrent ? roundMoney(savingsGoals.filter((goal) => goal.status === 'active').reduce((sum, goal) => sum + monthlyGoalReserve({
+		targetAmount: toNumber(goal.targetAmount), currentAmount: toNumber(goal.currentAmount), targetDate: goal.targetDate,
+		monthlyContribution: toNumber(goal.monthlyContribution), name: goal.name
+	}, now), 0)) : 0;
 	const effectiveValues = {
 		...values,
 		expectedIncome: values.expectedIncome + (carryover?.mode === 'spendable' ? carryover.amount : 0),
-		savingsGoal: values.savingsGoal + (carryover?.mode === 'savings' ? carryover.amount : 0)
+		savingsGoal: values.savingsGoal + (carryover?.mode === 'savings' ? carryover.amount : 0) + goalReserve
 	};
 	const currentDay = month.isCurrent ? bangkokParts(now).day : month.daysInMonth;
 	const foodSpent = slices.find((x) => x.categoryId === 'food')?.total ?? 0;
@@ -69,6 +75,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		commuteSpent,
 		cashExpense: Math.max(0, totals.expense - creditCardSpent - payLaterSpent),
 		unpaidBills, unpaidCardBills, currentDay, daysInMonth: month.daysInMonth }),
+		goalReserve, goalCount: savingsGoals.filter((goal) => goal.status === 'active').length,
 		carryover, closure, nextPlanExists: Boolean(nextPlan), nextBudgetCount: nextBudgets.length };
 };
 

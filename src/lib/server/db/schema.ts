@@ -96,6 +96,39 @@ export const monthlyPlans = pgTable(
 	(t) => [primaryKey({ columns: [t.userId, t.month] })]
 );
 
+export type SavingsGoalStatus = 'active' | 'paused' | 'closed' | 'completed';
+
+/** User-owned sinking funds. Contributions are transfers between pockets, not expenses. */
+export const savingsGoals = pgTable(
+	'savings_goals',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		name: text('name').notNull(),
+		targetAmount: numeric('target_amount', { precision: 12, scale: 2 }).notNull(),
+		currentAmount: numeric('current_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+		targetDate: date('target_date', { mode: 'date' }),
+		monthlyContribution: numeric('monthly_contribution', { precision: 12, scale: 2 }).notNull().default('0'),
+		priority: integer('priority').notNull().default(3),
+		status: varchar('status', { length: 12 }).notNull().default('active').$type<SavingsGoalStatus>(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('savings_goals_user_status_priority_idx').on(t.userId, t.status, t.priority)]
+);
+
+export const savingsGoalContributions = pgTable(
+	'savings_goal_contributions',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		goalId: integer('goal_id').notNull().references(() => savingsGoals.id, { onDelete: 'cascade' }),
+		amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('savings_goal_contributions_user_goal_idx').on(t.userId, t.goalId, t.createdAt)]
+);
+
 export const monthlyCategoryBudgets = pgTable(
 	'monthly_category_budgets',
 	{
@@ -502,5 +535,6 @@ export type Feedback = typeof feedback.$inferSelect;
 export type AiConversation = typeof aiConversations.$inferSelect;
 export type UserCategoryRule = typeof userCategoryRules.$inferSelect;
 export type WhatIfScenario = typeof whatIfScenarios.$inferSelect;
+export type SavingsGoal = typeof savingsGoals.$inferSelect;
 export type ReleaseDelivery = typeof releaseDeliveries.$inferSelect;
 export type StoredInsight = typeof insights.$inferSelect;
