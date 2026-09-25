@@ -18,7 +18,7 @@ suite('account deletion against PostgreSQL', async () => {
 	const {
 		adminAuditLogs, aiConversations, billPayments, bills, categories, creditCards, creditInstallments, monthClosures,
 		feedback, insights, llmQuota, llmUsage, monthlyCategoryBudgets, monthlyPlans, pendingSlips,
-		releaseDeliveries, reminderDeliveries, transactions, userCategoryRules
+		releaseDeliveries, reminderDeliveries, transactions, userCategoryRules, whatIfScenarios
 	} = await import('../src/lib/server/db/schema');
 	let ownerId = 0;
 	let targetId = 0;
@@ -67,6 +67,7 @@ suite('account deletion against PostgreSQL', async () => {
 		await db.insert(llmUsage).values({ userId: targetId, workflow: 'parser', provider: 'gemini', model: 'test', success: true });
 		await db.insert(releaseDeliveries).values({ userId: targetId, version: '1.0.0' });
 		await db.insert(userCategoryRules).values({ userId: targetId, keyword: 'grab', categoryId: 'food' });
+		await db.insert(whatIfScenarios).values({ userId: targetId, month: '2026-09', name: 'draft', changes: [{ type: 'savings', amount: 1000 }] });
 		await db.insert(adminAuditLogs).values({ actorUserId: ownerId, actorLineUserId: ownerLineId, targetUserId: targetId, action: 'update', entity: 'member_note', entityId: String(targetId), changes: { before: '', after: 'note' } });
 
 		expect(await deleteOwnAccount(targetId, targetLineId)).toBe('deleted');
@@ -88,6 +89,7 @@ suite('account deletion against PostgreSQL', async () => {
 			db.select().from(llmQuota).where(userEquals(llmQuota.userId, targetId)),
 			db.select().from(llmUsage).where(userEquals(llmUsage.userId, targetId)),
 			db.select().from(userCategoryRules).where(userEquals(userCategoryRules.userId, targetId)),
+			db.select().from(whatIfScenarios).where(userEquals(whatIfScenarios.userId, targetId)),
 			db.select().from(releaseDeliveries).where(userEquals(releaseDeliveries.userId, targetId)),
 			db.select().from(adminAuditLogs).where(userEquals(adminAuditLogs.targetUserId, targetId))
 		]);

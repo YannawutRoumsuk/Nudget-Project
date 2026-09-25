@@ -400,6 +400,21 @@ export const userCategoryRules = pgTable(
 	]
 );
 
+/** User-owned, non-financial what-if drafts. Applying a draft is a separate explicit action. */
+export const whatIfScenarios = pgTable(
+	'what_if_scenarios',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		month: varchar('month', { length: 7 }).notNull(),
+		name: varchar('name', { length: 80 }).notNull(),
+		changes: jsonb('changes').notNull().$type<unknown[]>(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('what_if_scenarios_user_month_idx').on(t.userId, t.month), index('what_if_scenarios_user_idx').on(t.userId)]
+);
+
 /**
  * One row per person per announced release. The primary key is what makes
  * `release:announce` safe to re-run after a half-finished rollout.
@@ -486,5 +501,6 @@ export type PendingSlip = typeof pendingSlips.$inferSelect;
 export type Feedback = typeof feedback.$inferSelect;
 export type AiConversation = typeof aiConversations.$inferSelect;
 export type UserCategoryRule = typeof userCategoryRules.$inferSelect;
+export type WhatIfScenario = typeof whatIfScenarios.$inferSelect;
 export type ReleaseDelivery = typeof releaseDeliveries.$inferSelect;
 export type StoredInsight = typeof insights.$inferSelect;

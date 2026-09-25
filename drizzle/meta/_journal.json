@@ -169,6 +169,13 @@
       "when": 1790321430349,
       "tag": "0023_user_category_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790324022670,
+      "tag": "0024_what_if_scenarios",
+      "breakpoints": true
     }
   ]
 }

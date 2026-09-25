@@ -22,7 +22,7 @@ suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
 	const { listMembers, setUserActive, getUserByLineId, touchUserActivity, updateNotificationPreferences } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
-	const { billPayments, bills, categories, creditCards, monthlyCategoryBudgets, monthlyPlans, transactions, userCategoryRules, users } = await import('../src/lib/server/db/schema');
+	const { billPayments, bills, categories, creditCards, monthlyCategoryBudgets, monthlyPlans, transactions, userCategoryRules, users, whatIfScenarios } = await import('../src/lib/server/db/schema');
 
 	beforeEach(async () => {
 		await db.delete(transactions);
@@ -203,6 +203,23 @@ suite('membership against a real database', async () => {
 		expect(await db.select().from(transactions).where(eq(transactions.userId, userA))).toHaveLength(3);
 	});
 
+	it('keeps what-if drafts private and applies selected plan edits atomically', async () => {
+		const accountA = await admit('Uwhatif-a');
+		const accountB = await admit('Uwhatif-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		const { saveWhatIfScenario, getWhatIfScenario, listWhatIfScenarios, applyWhatIfPlan } = await import('../src/lib/server/db/scenarios');
+		const changes = [{ id: 'draft-change', type: 'savings', amount: 6000 }];
+		const draft = await saveWhatIfScenario(userA, '2026-09', 'เป้าออมใหม่', changes);
+		expect(await getWhatIfScenario(draft!.id, userB)).toBeNull();
+		expect(await listWhatIfScenarios(userA, '2026-09')).toHaveLength(1);
+		await applyWhatIfPlan({ userId: userA, month: '2026-09', expectedIncome: '30000.00', expectedIncomeDay: 1, savingsGoal: '6000.00', foodDailyBudget: '100.00', commuteDailyBudget: '40.00', commuteDays: 20 }, [
+			{ categoryId: 'food', amount: '2400.00' }
+		]);
+		expect((await db.select().from(monthlyPlans).where(eq(monthlyPlans.userId, userA))).at(0)?.savingsGoal).toBe('6000.00');
+		expect((await db.select().from(monthlyCategoryBudgets).where(eq(monthlyCategoryBudgets.userId, userA))).at(0)?.amount).toBe('2400.00');
+	});
+
 	it('exports only the signed-in account across every owned table', async () => {
 		const accountA = await admit('Uaccount-a', async () => 'คนเอ');
 		const accountB = await admit('Uaccount-b', async () => 'คนบี');
@@ -229,6 +246,10 @@ suite('membership against a real database', async () => {
 			{ userId: userA, keyword: 'grab', categoryId: 'food', matchCount: 4, savedLlmCalls: 2 },
 			{ userId: userB, keyword: 'shoppee', categoryId: 'food', matchCount: 9, savedLlmCalls: 8 }
 		]);
+		await db.insert(whatIfScenarios).values([
+			{ userId: userA, month: '2026-09', name: 'แผนเอ', changes: [{ type: 'savings', amount: 1000 }] },
+			{ userId: userB, month: '2026-09', name: 'แผนบี', changes: [{ type: 'savings', amount: 2000 }] }
+		]);
 
 		const { parseExportSelection } = await import('../src/lib/export');
 		const { getPersonalExport } = await import('../src/lib/server/db/exports');
@@ -248,9 +269,11 @@ suite('membership against a real database', async () => {
 		expect(exported.billPayments.map((row) => row.transactionId)).toEqual([txA.id]);
 		expect(exported.monthlyPlans.map((row) => row.expectedIncome)).toEqual(['1000.10']);
 		expect(exported.learnedCategories.map((row) => row.keyword)).toEqual(['grab']);
+		expect(exported.whatIfScenarios.map((row) => row.name)).toEqual(['แผนเอ']);
 		expect(JSON.stringify(exported)).not.toContain('คนบี');
 		expect(JSON.stringify(exported)).not.toContain('70.50');
 		expect(JSON.stringify(exported)).not.toContain('shoppee');
+		expect(JSON.stringify(exported)).not.toContain('แผนบี');
 		const { billsCsv } = await import('../src/lib/export');
 		expect(billsCsv(exported)).toContain('"2026-09-01"');
 	});
