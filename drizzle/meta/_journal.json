@@ -176,6 +176,13 @@
       "when": 1790324022670,
       "tag": "0024_what_if_scenarios",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790325614579,
+      "tag": "0025_savings_goals",
+      "breakpoints": true
     }
   ]
 }

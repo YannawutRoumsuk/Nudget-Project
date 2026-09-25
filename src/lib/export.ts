@@ -79,8 +79,28 @@ export interface ExportWhatIfScenario {
 	updatedAt: string;
 }
 
+export interface ExportSavingsGoal {
+	id: number;
+	name: string;
+	targetAmount: string;
+	currentAmount: string;
+	targetDate: string | null;
+	monthlyContribution: string;
+	priority: number;
+	status: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface ExportSavingsGoalContribution {
+	goalId: number;
+	goalName: string;
+	amount: string;
+	createdAt: string;
+}
+
 export interface PersonalExport {
-	schemaVersion: 3;
+	schemaVersion: 4;
 	generatedAt: string;
 	timezone: typeof EXPORT_TIMEZONE;
 	selection: { from: string; to: string };
@@ -90,6 +110,8 @@ export interface PersonalExport {
 		monthlyPlans: 'overlapping_months';
 		learnedCategories: 'all_saved';
 		whatIfScenarios: 'all_saved';
+		savingsGoals: 'all_saved';
+		savingsGoalContributions: 'all_saved';
 		bills: 'all_saved';
 	};
 	account: { displayName: string; createdAt: string } | null;
@@ -100,6 +122,8 @@ export interface PersonalExport {
 	monthlyPlans: ExportMonthlyPlan[];
 	learnedCategories: ExportLearnedCategory[];
 	whatIfScenarios: ExportWhatIfScenario[];
+	savingsGoals: ExportSavingsGoal[];
+	savingsGoalContributions: ExportSavingsGoalContribution[];
 }
 
 export function parseExportSelection(params: URLSearchParams, now = new Date()): ExportSelection {
