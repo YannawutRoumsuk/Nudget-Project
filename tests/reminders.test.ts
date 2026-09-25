@@ -77,6 +77,14 @@ describe('bill reminders', () => {
 		expect(mocks.claimReminderDelivery).toHaveBeenCalledWith(expect.stringContaining('20:'), 2);
 	});
 
+	it('sends an additional single reminder on the due date', async () => {
+		mocks.listUsers.mockResolvedValue([{ id: 2, lineUserId: 'partner' }]);
+		mocks.listBills.mockResolvedValue([bill(20, 'ค่าน้ำ')]);
+		await runReminderCheck(fromBangkok(2026, 9, 10, 9));
+		expect(mocks.claimReminderDelivery).toHaveBeenCalledWith('20:2026-09-10:0', 2);
+		expect(mocks.pushText).toHaveBeenCalledWith('partner', expect.stringContaining('ครบกำหนดวันนี้'));
+	});
+
 	it('keeps delivering to other accounts when one push fails', async () => {
 		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
 		mocks.listUsers.mockResolvedValue([

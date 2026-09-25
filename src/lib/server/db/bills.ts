@@ -21,6 +21,10 @@ export interface BillView {
 	paid: boolean;
 	transactionId: number | null;
 	sourceTransactionId: number | null;
+	creditCardId: number | null;
+	noExpenseOnPay: boolean;
+	creditInstallmentId: number | null;
+	installmentNumber: number | null;
 }
 
 function toBillView(bill: Bill, reference: Date, paid?: { transactionId: number | null }): BillView {
@@ -76,7 +80,7 @@ export async function updateBill(
 	});
 }
 
-export async function markBillPaid(id: number, userId: number, reference = new Date()): Promise<{ bill: Bill; transactionId: number; existed: boolean } | null> {
+export async function markBillPaid(id: number, userId: number, reference = new Date()): Promise<{ bill: Bill; transactionId: number | null; existed: boolean } | null> {
 	return db.transaction(async (executor) => {
 		const [bill] = await executor.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);
 		if (!bill) return null;
@@ -85,10 +89,10 @@ export async function markBillPaid(id: number, userId: number, reference = new D
 			.select()
 			.from(billPayments)
 			.where(and(eq(billPayments.billId, id), eq(billPayments.period, period)));
-		if (existing?.transactionId) {
+		if (existing) {
 			return { bill, transactionId: existing.transactionId, existed: true };
 		}
-		const [transaction] = await executor.insert(transactions).values({
+		const transaction = bill.noExpenseOnPay ? null : (await executor.insert(transactions).values({
 			userId: bill.userId,
 			kind: 'expense',
 			amount: bill.amount,
@@ -100,13 +104,9 @@ export async function markBillPaid(id: number, userId: number, reference = new D
 			source: 'web',
 			parsedBy: 'manual',
 			rawText: `[bill:${bill.id}:${period}]`
-		}).returning({ id: transactions.id });
-		if (existing) {
-			await executor.update(billPayments).set({ transactionId: transaction.id, paidAt: reference }).where(eq(billPayments.id, existing.id));
-		} else {
-			await executor.insert(billPayments).values({ userId: bill.userId, billId: bill.id, period, transactionId: transaction.id });
-		}
-		return { bill, transactionId: transaction.id, existed: false };
+		}).returning({ id: transactions.id }))[0] ?? null;
+		await executor.insert(billPayments).values({ userId: bill.userId, billId: bill.id, period, transactionId: transaction?.id ?? null, paidAt: reference });
+		return { bill, transactionId: transaction?.id ?? null, existed: false };
 	});
 }
 

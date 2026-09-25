@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 
 /**
  * Membership and the member list are SQL, not logic — an upsert that stops
@@ -21,7 +22,7 @@ suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
 	const { listMembers, setUserActive, getUserByLineId, touchUserActivity } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
-	const { billPayments, bills, categories, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
+	const { billPayments, bills, categories, creditCards, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
 
 	beforeEach(async () => {
 		await db.delete(transactions);
@@ -185,5 +186,38 @@ suite('membership against a real database', async () => {
 		expect(JSON.stringify(exported)).not.toContain('70.50');
 		const { billsCsv } = await import('../src/lib/export');
 		expect(billsCsv(exported)).toContain('"2026-09-01"');
+	});
+
+	it('keeps credit card accounts private and does not count settlement twice', async () => {
+		const accountA = await admit('Ucard-a');
+		const accountB = await admit('Ucard-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		const [cardA, cardB] = await db.insert(creditCards).values([
+			{ userId: userA, name: 'บัตรเอ', closingDay: 25, dueDay: 15, isDefault: true },
+			{ userId: userB, name: 'บัตรบี', closingDay: 20, dueDay: 10, isDefault: true }
+		]).returning();
+		const [autoBill] = await db.insert(bills).values({
+			userId: userA, name: 'ยอดบัตรเอ', amount: '400.00', categoryId: 'food', paymentMethod: 'bank',
+			recurrence: 'once', dueDate: new Date('2026-09-15T02:00:00Z'), creditCardId: cardA.id, noExpenseOnPay: true
+		}).returning();
+		const [purchase, settlement] = await db.insert(transactions).values([
+			{ userId: userA, kind: 'expense', amount: '400.00', categoryId: 'food', note: 'ซื้อด้วยบัตร', occurredAt: new Date('2026-09-01T05:00:00Z'), paymentMethod: 'credit_card', creditCardId: cardA.id, source: 'web', parsedBy: 'manual' },
+			{ userId: userA, kind: 'expense', amount: '400.00', categoryId: 'food', note: 'จ่ายยอดบัตร', occurredAt: new Date('2026-09-15T05:00:00Z'), paymentMethod: 'bank', billId: autoBill.id, source: 'web', parsedBy: 'manual' }
+		]).returning();
+		const { getTotals, listTransactions } = await import('../src/lib/server/db/queries');
+		const { getCreditCard } = await import('../src/lib/server/db/credit-cards');
+		const { parseExportSelection } = await import('../src/lib/export');
+		const { getPersonalExport } = await import('../src/lib/server/db/exports');
+		const range = { from: new Date('2026-08-31T17:00:00Z'), to: new Date('2026-09-30T17:00:00Z') };
+		const selection = parseExportSelection(new URLSearchParams('mode=range&from=2026-08-31&to=2026-09-30'));
+
+		expect(await getCreditCard(cardA.id, userB)).toBeNull();
+		expect((await getCreditCard(cardB.id, userB))?.name).toBe('บัตรบี');
+		expect((await getTotals(userA, range)).expense).toBe(400);
+		expect((await listTransactions(userA, range)).map((row) => row.id)).toEqual([purchase.id]);
+		const exported = await getPersonalExport(userA, selection);
+		expect(exported.transactions.map((row) => row.id)).toEqual([purchase.id]);
+		expect(await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, settlement.id))).toHaveLength(1);
 	});
 });

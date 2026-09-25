@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lt } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lt, notExists } from 'drizzle-orm';
 import { categoryLabel } from '$lib/categories';
 import {
 	EXPORT_TIMEZONE,
@@ -17,7 +17,15 @@ export async function getPersonalExport(userId: number, selection: ExportSelecti
 	const [accountRows, transactionRows, billRows, paymentRows, planRows] = await Promise.all([
 		db.select({ displayName: users.displayName, createdAt: users.createdAt }).from(users).where(eq(users.id, userId)).limit(1),
 		db.select().from(transactions)
-			.where(and(eq(transactions.userId, userId), gte(transactions.occurredAt, selection.from), lt(transactions.occurredAt, selection.to)))
+			.where(and(
+				eq(transactions.userId, userId),
+				gte(transactions.occurredAt, selection.from),
+				lt(transactions.occurredAt, selection.to),
+				notExists(db.select({ id: bills.id }).from(bills).where(and(
+					eq(bills.id, transactions.billId),
+					eq(bills.noExpenseOnPay, true)
+				)))
+			))
 			.orderBy(asc(transactions.occurredAt), asc(transactions.id)),
 		db.select().from(bills).where(eq(bills.userId, userId)).orderBy(asc(bills.id)),
 		db.select().from(billPayments)

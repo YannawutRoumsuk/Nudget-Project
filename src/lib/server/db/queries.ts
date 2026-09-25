@@ -1,10 +1,12 @@
-import { and, desc, eq, gte, lt, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, notExists, notInArray, sql } from 'drizzle-orm';
 import { FIXED_EXPENSE_CATEGORY_IDS } from '$lib/categories';
 import { deferredBillForTransaction } from '$lib/deferred';
 import { db } from './index';
-import { bills, processedEvents, reminderDeliveries, transactions } from './schema';
+import { bills, creditCards, creditInstallments, processedEvents, reminderDeliveries, transactions } from './schema';
 import type { NewTransaction, PaymentMethod, Transaction, TxKind } from './schema';
 import { toNumber } from '$lib/utils/money';
+import { getDefaultCreditCardId } from './credit-cards';
+import { splitInstallments } from '$lib/credit-cards';
 
 export type DbExecutor = Pick<typeof db, 'insert' | 'select' | 'update' | 'delete'>;
 
@@ -57,13 +59,21 @@ function ownedInRange(userId: number, { from, to }: Range, excludeMarked = false
 		eq(transactions.userId, userId),
 		gte(transactions.occurredAt, from),
 		lt(transactions.occurredAt, to),
+		notExists(db.select({ id: bills.id }).from(bills).where(and(
+			eq(bills.id, transactions.billId),
+			eq(bills.noExpenseOnPay, true)
+		))),
 		excludeMarked ? eq(transactions.excludeFromBaseline, false) : undefined
 	);
 }
 
 export async function insertTransaction(tx: NewTransaction, executor?: DbExecutor): Promise<Transaction> {
 	if (!executor) return db.transaction((inner) => insertTransaction(tx, inner));
-	const [row] = await executor.insert(transactions).values(tx).returning();
+	const creditCardId = tx.paymentMethod === 'credit_card'
+		? tx.creditCardId ?? await getDefaultCreditCardId(tx.userId, executor)
+		: null;
+	if (creditCardId !== null) await assertOwnedActiveCard(tx.userId, creditCardId, executor);
+	const [row] = await executor.insert(transactions).values({ ...tx, creditCardId }).returning();
 	await syncDeferredBill(row, executor);
 	return row;
 }
@@ -77,9 +87,13 @@ export async function insertTransactionIfUnique(
 	executor?: DbExecutor
 ): Promise<Transaction | null> {
 	if (!executor) return db.transaction((inner) => insertTransactionIfUnique(tx, inner));
+	const creditCardId = tx.paymentMethod === 'credit_card'
+		? tx.creditCardId ?? await getDefaultCreditCardId(tx.userId, executor)
+		: null;
+	if (creditCardId !== null) await assertOwnedActiveCard(tx.userId, creditCardId, executor);
 	const [row] = await executor
 		.insert(transactions)
-		.values(tx)
+		.values({ ...tx, creditCardId })
 		.onConflictDoNothing()
 		.returning();
 	if (row) await syncDeferredBill(row, executor);
@@ -88,6 +102,9 @@ export async function insertTransactionIfUnique(
 
 export async function deleteTransaction(id: number, userId: number, executor?: DbExecutor): Promise<boolean> {
 	if (!executor) return db.transaction((inner) => deleteTransaction(id, userId, inner));
+	const [plan] = await executor.select({ id: creditInstallments.id }).from(creditInstallments)
+		.where(and(eq(creditInstallments.userId, userId), eq(creditInstallments.purchaseTransactionId, id))).limit(1);
+	if (plan) await executor.delete(bills).where(and(eq(bills.userId, userId), eq(bills.creditInstallmentId, plan.id)));
 	await executor.delete(bills).where(and(eq(bills.userId, userId), eq(bills.sourceTransactionId, id)));
 	const deleted = await executor
 		.delete(transactions)
@@ -108,18 +125,61 @@ export async function getTransaction(id: number, userId: number): Promise<Transa
 export async function updateTransaction(
 	id: number,
 	userId: number,
-	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod' | 'excludeFromBaseline' | 'anomalyDismissed'>>
+	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod' | 'creditCardId' | 'excludeFromBaseline' | 'anomalyDismissed'>>
 ): Promise<Transaction | null> {
 	return db.transaction(async (executor) => {
-		const [row] = await executor.update(transactions).set(values)
+		const [existing] = await executor.select().from(transactions)
+			.where(and(eq(transactions.id, id), eq(transactions.userId, userId))).limit(1);
+		if (!existing) return null;
+		const [plan] = await executor.select().from(creditInstallments).where(and(
+			eq(creditInstallments.userId, userId), eq(creditInstallments.purchaseTransactionId, id)
+		)).limit(1);
+		const method = values.paymentMethod ?? existing.paymentMethod;
+		const kind = values.kind ?? existing.kind;
+		const creditCardId = method === 'credit_card'
+			? values.creditCardId === undefined ? existing.creditCardId : values.creditCardId
+			: null;
+		if (creditCardId !== null) await assertOwnedActiveCard(userId, creditCardId, executor);
+		const planAmounts = plan ? splitInstallments(Number(values.amount ?? existing.amount), plan.totalInstallments) : [];
+		if (plan && (kind !== 'expense' || method !== 'credit_card' || creditCardId === null || !planAmounts.length)) return null;
+		const [row] = await executor.update(transactions).set({ ...values, creditCardId })
 			.where(and(eq(transactions.id, id), eq(transactions.userId, userId))).returning();
-		if (row) await syncDeferredBill(row, executor);
+		if (row) {
+			if (plan) {
+				await executor.update(creditInstallments).set({
+					creditCardId: row.creditCardId!,
+					name: row.note,
+					categoryId: row.categoryId,
+					totalAmount: row.amount,
+					installmentAmount: planAmounts[0].toFixed(2),
+					updatedAt: new Date()
+				}).where(and(eq(creditInstallments.id, plan.id), eq(creditInstallments.userId, userId)));
+				const planBills = await executor.select({ id: bills.id, number: bills.installmentNumber }).from(bills).where(and(
+					eq(bills.userId, userId), eq(bills.creditInstallmentId, plan.id)
+				));
+				for (const bill of planBills) {
+					const index = (bill.number ?? 1) - 1;
+					await executor.update(bills).set({
+						name: `${row.note} (${index + 1}/${plan.totalInstallments})`,
+						amount: planAmounts[index].toFixed(2),
+						categoryId: row.categoryId,
+						creditCardId: row.creditCardId,
+						updatedAt: new Date()
+					}).where(and(eq(bills.id, bill.id), eq(bills.userId, userId)));
+				}
+			} else await syncDeferredBill(row, executor);
+		}
 		return row ?? null;
 	});
 }
 
 async function syncDeferredBill(transaction: Transaction, executor: DbExecutor): Promise<void> {
-	const draft = deferredBillForTransaction(transaction);
+	const [installment] = await executor.select({ id: creditInstallments.id }).from(creditInstallments)
+		.where(and(eq(creditInstallments.userId, transaction.userId), eq(creditInstallments.purchaseTransactionId, transaction.id))).limit(1);
+	if (installment) return;
+	const [card] = transaction.creditCardId === null ? [] : await executor.select().from(creditCards)
+		.where(and(eq(creditCards.id, transaction.creditCardId), eq(creditCards.userId, transaction.userId), eq(creditCards.active, true))).limit(1);
+	const draft = deferredBillForTransaction(transaction, card ?? null);
 	const [existing] = await executor.select().from(bills)
 		.where(and(eq(bills.userId, transaction.userId), eq(bills.sourceTransactionId, transaction.id))).limit(1);
 	if (!draft) {
@@ -131,6 +191,13 @@ async function syncDeferredBill(transaction: Transaction, executor: DbExecutor):
 	} else {
 		await executor.insert(bills).values(draft);
 	}
+}
+
+async function assertOwnedActiveCard(userId: number, cardId: number, executor: DbExecutor): Promise<void> {
+	const [card] = await executor.select({ id: creditCards.id }).from(creditCards).where(and(
+		eq(creditCards.id, cardId), eq(creditCards.userId, userId), eq(creditCards.active, true)
+	)).limit(1);
+	if (!card) throw new Error('Credit card account does not belong to this user or is inactive');
 }
 
 export async function deleteLatestTransaction(userId: number, executor: DbExecutor = db): Promise<Transaction | null> {

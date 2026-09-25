@@ -85,6 +85,24 @@ export const monthlyPlans = pgTable(
 	(t) => [primaryKey({ columns: [t.userId, t.month] })]
 );
 
+/** Card metadata only; never store a full card number or security code. */
+export const creditCards = pgTable(
+	'credit_cards',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		name: text('name').notNull(),
+		closingDay: integer('closing_day').notNull(),
+		dueDay: integer('due_day').notNull(),
+		creditLimit: numeric('credit_limit', { precision: 12, scale: 2 }),
+		isDefault: boolean('is_default').notNull().default(false),
+		active: boolean('active').notNull().default(true),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [uniqueIndex('credit_cards_user_default_idx').on(t.userId).where(sql`${t.isDefault} = true`)]
+);
+
 export const bills = pgTable(
 	'bills',
 	{
@@ -101,6 +119,11 @@ export const bills = pgTable(
 		dueDate: date('due_date', { mode: 'date' }),
 		/** Purchase that created this next-month obligation; null for hand-made bills. */
 		sourceTransactionId: integer('source_transaction_id'),
+		creditCardId: integer('credit_card_id').references(() => creditCards.id, { onDelete: 'set null' }),
+		/** Card settlements and installment bills track obligations, not new spending. */
+		noExpenseOnPay: boolean('no_expense_on_pay').notNull().default(false),
+		creditInstallmentId: integer('credit_installment_id'),
+		installmentNumber: integer('installment_number'),
 		active: boolean('active').notNull().default(true),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
@@ -127,6 +150,7 @@ export const transactions = pgTable(
 		/** Instant the money moved, not the instant we recorded it. */
 		occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
 		paymentMethod: varchar('payment_method', { length: 24 }).notNull().$type<PaymentMethod>().default('bank'),
+		creditCardId: integer('credit_card_id').references(() => creditCards.id, { onDelete: 'set null' }),
 		billId: integer('bill_id').references(() => bills.id, { onDelete: 'set null' }),
 		source: varchar('source', { length: 8 }).notNull().$type<'line' | 'web'>(),
 		parsedBy: varchar('parsed_by', { length: 8 }).notNull().$type<'rule' | 'llm' | 'manual' | 'ocr'>(),
@@ -160,6 +184,27 @@ export const billPayments = pgTable(
 		paidAt: timestamp('paid_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => [uniqueIndex('bill_payments_bill_period_idx').on(t.billId, t.period)]
+);
+
+/** A purchase recorded once, with future per-installment obligations. */
+export const creditInstallments = pgTable(
+	'credit_installments',
+	{
+		id: serial('id').primaryKey(),
+		userId: ownerId(),
+		creditCardId: integer('credit_card_id').notNull().references(() => creditCards.id, { onDelete: 'cascade' }),
+		purchaseTransactionId: integer('purchase_transaction_id').notNull().unique().references(() => transactions.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		categoryId: varchar('category_id', { length: 32 }).notNull().references(() => categories.id),
+		totalAmount: numeric('total_amount', { precision: 12, scale: 2 }).notNull(),
+		installmentAmount: numeric('installment_amount', { precision: 12, scale: 2 }).notNull(),
+		totalInstallments: integer('total_installments').notNull(),
+		firstDueDate: date('first_due_date', { mode: 'date' }).notNull(),
+		active: boolean('active').notNull().default(true),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('credit_installments_user_card_idx').on(t.userId, t.creditCardId)]
 );
 
 export const pendingSlips = pgTable(
@@ -322,6 +367,7 @@ export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
 export type Bill = typeof bills.$inferSelect;
+export type CreditCard = typeof creditCards.$inferSelect;
 export type MonthlyPlan = typeof monthlyPlans.$inferSelect;
 export type PendingSlip = typeof pendingSlips.$inferSelect;
 export type Feedback = typeof feedback.$inferSelect;
