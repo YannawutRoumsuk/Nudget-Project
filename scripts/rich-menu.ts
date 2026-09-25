@@ -2,13 +2,24 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
 
-process.loadEnvFile?.();
+try {
+	process.loadEnvFile?.();
+} catch {
+	// Local .env is optional; CI and deployments inject their environment.
+}
 
 export const WIDTH = 2500;
 export const HEIGHT = 1686;
 const COLUMNS = 4;
 const ROWS = 2;
 const OUTPUT = join(process.cwd(), 'static', 'line-rich-menu.png');
+export const MANAGED_MENU_NAME = 'Nudget 8-button menu';
+
+interface ExistingRichMenu {
+	richMenuId: string;
+	name?: string;
+	selected?: boolean;
+}
 
 interface Item {
 	label: string;
@@ -87,25 +98,63 @@ export function actions() {
 	}));
 }
 
-async function setup() {
+function payload() {
+	return { size: { width: WIDTH, height: HEIGHT }, name: MANAGED_MENU_NAME, chatBarText: 'เมนู', areas: actions() };
+}
+
+export function isManagedMenu(menu: ExistingRichMenu): boolean {
+	// Exact names created by this tool; do not treat arbitrary LINE menus as ours.
+	return menu.name === MANAGED_MENU_NAME;
+}
+
+export async function setup(options: { dryRun?: boolean; fetcher?: typeof fetch } = {}) {
+	const fetcher = options.fetcher ?? fetch;
 	const token = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim();
 	if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is required for rich menu setup');
 	const imagePath = process.env.RICH_MENU_IMAGE?.trim() ? resolve(process.env.RICH_MENU_IMAGE) : OUTPUT;
 	const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-	const created = await fetch('https://api.line.me/v2/bot/richmenu', {
-		method: 'POST', headers,
-		body: JSON.stringify({ size: { width: WIDTH, height: HEIGHT }, selected: true, name: 'Nudget 8-button menu', chatBarText: 'เมนู', areas: actions() })
-	});
-	if (!created.ok) throw new Error(`LINE rich menu creation failed (${created.status}): ${await created.text()}`);
-	const { richMenuId } = await created.json() as { richMenuId: string };
-	const image = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
+	const listed = await fetcher('https://api.line.me/v2/bot/richmenu/list', { headers: { Authorization: `Bearer ${token}` } });
+	if (!listed.ok) throw new Error(`LINE rich menu list failed (${listed.status}): ${await listed.text()}`);
+	const { richmenus = [] } = await listed.json() as { richmenus?: ExistingRichMenu[] };
+	const managed = richmenus.filter(isManagedMenu);
+	const reusable = managed.find((menu) => menu.selected) ?? managed[0];
+	const duplicates = managed.filter((menu) => menu.richMenuId !== reusable?.richMenuId);
+	if (options.dryRun) {
+		console.log(`Dry run — found ${managed.length} Nudget menu(s); unrelated menus will be left untouched.`);
+		console.log(reusable ? `Would update ${reusable.richMenuId} from ${imagePath} and set it as default.` : `Would create ${MANAGED_MENU_NAME} from ${imagePath} and set it as default.`);
+		if (duplicates.length) console.log(`Would delete duplicate Nudget menu(s): ${duplicates.map((menu) => menu.richMenuId).join(', ')}`);
+		return;
+	}
+
+	const body = JSON.stringify(payload());
+	let richMenuId: string;
+	if (reusable) {
+		richMenuId = reusable.richMenuId;
+		const updated = await fetcher(`https://api.line.me/v2/bot/richmenu/${richMenuId}`, { method: 'PUT', headers, body });
+		if (!updated.ok) throw new Error(`LINE rich menu update failed (${updated.status}): ${await updated.text()}`);
+	} else {
+		const created = await fetcher('https://api.line.me/v2/bot/richmenu', { method: 'POST', headers, body });
+		if (!created.ok) throw new Error(`LINE rich menu creation failed (${created.status}): ${await created.text()}`);
+		richMenuId = (await created.json() as { richMenuId: string }).richMenuId;
+	}
+
+	const image = await fetcher(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
 		method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'image/png' }, body: await readFile(imagePath)
 	});
 	if (!image.ok) throw new Error(`LINE rich menu image upload failed (${image.status})`);
-	const selected = await fetch(`https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-	if (!selected.ok) throw new Error(`LINE default rich menu setup failed (${selected.status})`);
-	console.log(`Rich menu ${richMenuId} created from ${imagePath} and set as default.`);
+	const selected = await fetcher(`https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+	if (!selected.ok) throw new Error(`LINE default rich menu setup failed (${selected.status}): ${await selected.text()}`);
+	for (const duplicate of duplicates) {
+		const deleted = await fetcher(`https://api.line.me/v2/bot/richmenu/${duplicate.richMenuId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+		if (!deleted.ok) throw new Error(`LINE duplicate rich menu cleanup failed (${deleted.status}) for ${duplicate.richMenuId}`);
+	}
+	console.log(`Rich menu ${richMenuId} updated from ${imagePath}, set as default${duplicates.length ? `; removed ${duplicates.length} duplicate(s)` : ''}.`);
 }
 
-await generate();
-if (process.argv.includes('--setup')) await setup();
+if (import.meta.main) {
+	const shouldSetup = process.argv.includes('--setup');
+	const dryRun = process.argv.includes('--dry-run');
+	if (dryRun && !shouldSetup) throw new Error('--dry-run requires --setup');
+	if (shouldSetup) await setup({ dryRun });
+	else await generate();
+}
