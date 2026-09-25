@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit';
-import { SESSION_COOKIE, verifySessionToken } from '$lib/server/auth';
+import { SESSION_COOKIE, verifySessionClaims, verifySessionToken } from '$lib/server/auth';
 import { building } from '$app/environment';
 import { config, describeLlmSetup } from '$lib/server/config';
 import { resolveMember } from '$lib/server/access';
@@ -28,7 +28,9 @@ if (!building && process.env.NODE_ENV !== 'test' && config.reminders.mode === 't
 const PUBLIC_PREFIXES = ['/login', '/api/line', '/api/auth/line', '/health/', '/api/health/'];
 
 export const handle: Handle = async ({ event, resolve }) => {
-	const lineUserId = verifySessionToken(event.cookies.get(SESSION_COOKIE));
+	const token = event.cookies.get(SESSION_COOKIE);
+	const claims = verifySessionClaims(token);
+	const lineUserId = claims?.lineUserId ?? verifySessionToken(token);
 	// The cookie only proves which LINE account signed in. The ledger row it maps
 	// to is what every page filters on, so resolve it here once and never let a
 	// route derive an owner from user-supplied input.
@@ -37,6 +39,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		await touchUserActivity(user.id);
 	}
 	event.locals.lineUserId = user ? user.lineUserId : null;
+	event.locals.sessionIssuedAt = user ? claims?.issuedAt ?? null : null;
+	event.locals.sessionMethod = user ? claims?.method ?? null : null;
 	event.locals.userId = user?.id ?? null;
 	event.locals.authed = Boolean(user);
 

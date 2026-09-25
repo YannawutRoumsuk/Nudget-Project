@@ -18,6 +18,7 @@ export const load: PageServerLoad = ({ locals, url }) => {
 		config.line.allowedUserIds.length === 1;
 	return {
 		liffId,
+		accountDeleted: url.searchParams.get('accountDeleted') === '1',
 		// LINE sends the browser back to this page, so the client finishes the
 		// sign-in and needs to know where the person was originally headed.
 		next: safeNext(url.searchParams.get('next')),
@@ -47,7 +48,7 @@ export const actions: Actions = {
 		}
 
 		const owner = await ensureUser(config.line.allowedUserIds[0]);
-		cookies.set(SESSION_COOKIE, createSessionToken(owner.lineUserId), {
+		cookies.set(SESSION_COOKIE, createSessionToken(owner.lineUserId, Date.now(), 'password'), {
 			...sessionCookieOptions,
 			secure: url.protocol === 'https:'
 		});

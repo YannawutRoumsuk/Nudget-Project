@@ -115,6 +115,7 @@
 		<span class="mark" aria-hidden="true">฿</span>
 		<h1>Nudget</h1>
 		<p class="tagline">สมุดบัญชีส่วนตัวที่คุยผ่าน LINE</p>
+		{#if data.accountDeleted}<p class="success" role="status">ลบบัญชีและข้อมูลที่ใช้งานแล้วเรียบร้อย การลบถาวร หากกลับมาใช้ใหม่จะเริ่มบัญชีเปล่า</p>{/if}
 
 		{#if data.liffId}
 			<button class="line-login" type="button" onclick={loginWithLine} disabled={liffBusy}>
@@ -343,7 +344,8 @@
 	}
 
 	.setup,
-	.error {
+	.error,
+	.success {
 		margin-top: 1rem;
 		padding: 0.7rem 0.85rem;
 		font-size: var(--text-sm);
@@ -360,6 +362,8 @@
 		color: var(--out);
 		background: var(--out-soft);
 	}
+
+	.success { color: var(--in); background: var(--paper-sunken); }
 
 	code {
 		font-family: var(--font-num);
