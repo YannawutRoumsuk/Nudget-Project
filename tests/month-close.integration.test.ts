@@ -24,7 +24,7 @@ suite('monthly close against PostgreSQL', async () => {
 		await db.delete(users).where(eq(users.lineUserId, lineId));
 		await db.insert(categories).values({ id: 'food', nameTh: 'อาหาร', nameEn: 'Food', kind: 'expense', icon: '🍜', color: '#f00' }).onConflictDoNothing();
 		const [user] = await db.insert(users).values({ lineUserId: lineId, displayName: 'Month close' }).returning();
-		const sourcePlan = { userId: user.id, month: '2026-07', expectedIncome: '30000.00', savingsGoal: '5000.00', foodDailyBudget: '250.00', commuteDailyBudget: '100.00', commuteDays: 20, budgetAlertsEnabled: true };
+		const sourcePlan = { userId: user.id, month: '2026-07', expectedIncome: '30000.00', expectedIncomeDay: 25, savingsGoal: '5000.00', foodDailyBudget: '250.00', commuteDailyBudget: '100.00', commuteDays: 20, budgetAlertsEnabled: true };
 		await db.insert((await import('../src/lib/server/db/schema')).monthlyPlans).values(sourcePlan);
 		await db.insert((await import('../src/lib/server/db/schema')).monthlyCategoryBudgets).values({ userId: user.id, month: '2026-07', categoryId: 'food', amount: '7000.00' });
 		await db.insert(bills).values({ userId: user.id, name: 'ค่าน้ำค้างจ่าย', amount: '450.00', categoryId: 'food', paymentMethod: 'bank', recurrence: 'once', dueDate: new Date(Date.UTC(2026, 6, 5, 12)), active: true });
@@ -33,7 +33,7 @@ suite('monthly close against PostgreSQL', async () => {
 			snapshot: { income: 30000, expense: 12000, remaining: 8000, unpaidBills: 450, unpaidBillCount: 1, categorySpend: [{ categoryId: 'food', amount: 5000 }], refreshedAt: '2026-08-01T00:00:00.000Z' },
 			carryoverMode: 'spendable' as const, carryoverAmount: 8000,
 			plan: {
-				expectedIncome: sourcePlan.expectedIncome, savingsGoal: sourcePlan.savingsGoal, foodDailyBudget: sourcePlan.foodDailyBudget,
+				expectedIncome: sourcePlan.expectedIncome, expectedIncomeDay: sourcePlan.expectedIncomeDay, savingsGoal: sourcePlan.savingsGoal, foodDailyBudget: sourcePlan.foodDailyBudget,
 				commuteDailyBudget: sourcePlan.commuteDailyBudget, commuteDays: sourcePlan.commuteDays, budgetAlertsEnabled: sourcePlan.budgetAlertsEnabled
 			},
 			budgets: [{ categoryId: 'food', amount: '7000.00' }],
@@ -41,6 +41,7 @@ suite('monthly close against PostgreSQL', async () => {
 		};
 		expect(await closeMonth(closeInput)).toEqual({ status: 'closed', carriedBillCount: 1 });
 		expect((await getMonthlyPlan(user.id, '2026-08'))?.expectedIncome).toBe('30000.00');
+		expect((await getMonthlyPlan(user.id, '2026-08'))?.expectedIncomeDay).toBe(25);
 		expect((await getMonthlyCategoryBudgets(user.id, '2026-08')).map((row) => row.amount)).toEqual(['7000.00']);
 		const carriedBill = (await listBills(user.id, fromBangkok(2026, 8, 1))).find((bill) => bill.recurrence === 'once');
 		expect(carriedBill).toBeDefined();

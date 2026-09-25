@@ -121,14 +121,15 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const month = String(form.get('month') ?? '');
 		const expectedIncome = nonNegativeAmount(form.get('expectedIncome'));
+		const expectedIncomeDay = Number(form.get('expectedIncomeDay'));
 		const savingsGoal = nonNegativeAmount(form.get('savingsGoal'));
 		const foodDailyBudget = nonNegativeAmount(form.get('foodDailyBudget'));
 		const commuteDailyBudget = nonNegativeAmount(form.get('commuteDailyBudget'));
 		const commuteDays = Number(form.get('commuteDays'));
-		if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !expectedIncome || !savingsGoal || !foodDailyBudget || !commuteDailyBudget || !Number.isInteger(commuteDays) || commuteDays < 0 || commuteDays > 31) {
+		if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !expectedIncome || !Number.isInteger(expectedIncomeDay) || expectedIncomeDay < 1 || expectedIncomeDay > 31 || !savingsGoal || !foodDailyBudget || !commuteDailyBudget || !Number.isInteger(commuteDays) || commuteDays < 0 || commuteDays > 31) {
 			return fail(400, { message: 'ตรวจเดือนและยอดในแผนอีกครั้ง' });
 		}
-		await saveMemberPlan(actor, target, { month, expectedIncome, savingsGoal, foodDailyBudget, commuteDailyBudget, commuteDays, budgetAlertsEnabled: String(form.get('budgetAlertsEnabled')) === 'true' });
+		await saveMemberPlan(actor, target, { month, expectedIncome, expectedIncomeDay, savingsGoal, foodDailyBudget, commuteDailyBudget, commuteDays, budgetAlertsEnabled: String(form.get('budgetAlertsEnabled')) === 'true' });
 		return { message: 'บันทึกแผนรายเดือนแล้ว' };
 	},
 	saveCategoryBudget: async ({ locals, params, request }) => {

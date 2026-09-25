@@ -12,6 +12,7 @@
 		{ href: '/bills', label: 'บิล' },
 		{ href: '/cards', label: 'บัตรเครดิต' },
 		{ href: '/plan', label: 'แผนเดือน' },
+		{ href: '/cashflow', label: 'กระแสเงินสด' },
 		{ href: '/export', label: 'ส่งออก' },
 		{ href: '/privacy', label: 'ข้อมูลส่วนตัว' },
 		{ href: '/feedback', label: 'ฟีดแบ็ก' },

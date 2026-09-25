@@ -53,6 +53,7 @@
 	<input type="hidden" name="month" value={data.month.key} />
 	<h2>ตัวเลขตั้งต้น</h2><p class="hint">แก้เมื่อไรก็ได้ ผลวิเคราะห์จะคำนวณใหม่จากรายการจริงและบิลที่ยังไม่จ่าย</p>
 	<label>เงินที่คาดว่าจะมีเดือนนี้<input name="expectedIncome" type="number" min="0" step="0.01" value={data.values.expectedIncome} required /></label>
+	<label>คาดว่าจะได้รับวันที่<input name="expectedIncomeDay" type="number" min="1" max="31" step="1" value={data.values.expectedIncomeDay} required /></label>
 	<label>อยากเก็บออม<input name="savingsGoal" type="number" min="0" step="0.01" value={data.values.savingsGoal} required /></label>
 	<label>ค่าอาหารต่อวัน<input name="foodDailyBudget" type="number" min="0" step="0.01" value={data.values.foodDailyBudget} required /></label>
 	<label>ค่าเดินทางต่อวันทำงาน<input name="commuteDailyBudget" type="number" min="0" step="0.01" value={data.values.commuteDailyBudget} required /></label>

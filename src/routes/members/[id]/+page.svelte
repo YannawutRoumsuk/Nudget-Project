@@ -107,6 +107,7 @@
 		<div class="fields">
 			<label>เดือน<input type="month" name="month" required value={monthNow} /></label>
 			<label>รายรับคาดหวัง<input name="expectedIncome" type="number" min="0" step="0.01" required value="0" /></label>
+			<label>วันที่คาดว่าจะได้รับ<input name="expectedIncomeDay" type="number" min="1" max="31" step="1" required value="1" /></label>
 			<label>เป้าออมเงิน<input name="savingsGoal" type="number" min="0" step="0.01" required value="0" /></label>
 			<label>งบกินต่อวัน<input name="foodDailyBudget" type="number" min="0" step="0.01" required value="0" /></label>
 			<label>งบเดินทางต่อวัน<input name="commuteDailyBudget" type="number" min="0" step="0.01" required value="0" /></label>
@@ -118,11 +119,12 @@
 	<div class="records">
 		{#each data.plans as plan (plan.month)}
 			<details class="record">
-				<summary><span>{plan.month}<small>รายรับ {money(plan.expectedIncome)} · ออม {money(plan.savingsGoal)} · กิน/วัน {money(plan.foodDailyBudget)} · เดินทาง/วัน {money(plan.commuteDailyBudget)} · {plan.commuteDays} วัน</small></span><strong>แก้แผน</strong></summary>
+				<summary><span>{plan.month}<small>รายรับ {money(plan.expectedIncome)} วันที่ {plan.expectedIncomeDay} · ออม {money(plan.savingsGoal)} · กิน/วัน {money(plan.foodDailyBudget)} · เดินทาง/วัน {money(plan.commuteDailyBudget)} · {plan.commuteDays} วัน</small></span><strong>แก้แผน</strong></summary>
 				<form method="POST" action="?/savePlan" class="plan-form editor">
 					<div class="fields">
 						<label>เดือน<input type="month" name="month" required value={plan.month} /></label>
 						<label>รายรับคาดหวัง<input name="expectedIncome" type="number" min="0" step="0.01" required value={plan.expectedIncome} /></label>
+						<label>วันที่คาดว่าจะได้รับ<input name="expectedIncomeDay" type="number" min="1" max="31" step="1" required value={plan.expectedIncomeDay} /></label>
 						<label>เป้าออมเงิน<input name="savingsGoal" type="number" min="0" step="0.01" required value={plan.savingsGoal} /></label>
 						<label>งบกินต่อวัน<input name="foodDailyBudget" type="number" min="0" step="0.01" required value={plan.foodDailyBudget} /></label>
 						<label>งบเดินทางต่อวัน<input name="commuteDailyBudget" type="number" min="0" step="0.01" required value={plan.commuteDailyBudget} /></label>

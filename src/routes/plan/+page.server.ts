@@ -44,7 +44,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		spent: (categorySpent.get(category.id) ?? 0) + (unpaidManualByCategory.get(category.id) ?? 0)
 	})), month.isCurrent ? bangkokParts(now).day : month.daysInMonth, month.daysInMonth);
 	const values = {
-		expectedIncome: toNumber(plan?.expectedIncome ?? 0), savingsGoal: toNumber(plan?.savingsGoal ?? 0),
+		expectedIncome: toNumber(plan?.expectedIncome ?? 0), expectedIncomeDay: plan?.expectedIncomeDay ?? 1, savingsGoal: toNumber(plan?.savingsGoal ?? 0),
 		foodDailyBudget: toNumber(plan?.foodDailyBudget ?? 0), commuteDailyBudget: toNumber(plan?.commuteDailyBudget ?? 0),
 		commuteDays: plan?.commuteDays ?? 0,
 		budgetAlertsEnabled: plan?.budgetAlertsEnabled ?? true
@@ -78,15 +78,15 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const number = (key: string) => Number(form.get(key));
 		const month = String(form.get('month'));
-		const values = { expectedIncome: number('expectedIncome'), savingsGoal: number('savingsGoal'),
+		const values = { expectedIncome: number('expectedIncome'), expectedIncomeDay: number('expectedIncomeDay'), savingsGoal: number('savingsGoal'),
 			foodDailyBudget: number('foodDailyBudget'), commuteDailyBudget: number('commuteDailyBudget'), commuteDays: number('commuteDays'),
 			budgetAlertsEnabled: form.get('budgetAlertsEnabled') === 'on' };
 		try { assertSelectableMonth(month); } catch { return fail(400, { message: 'เดือนไม่ถูกต้อง' }); }
 		const numericValues = [values.expectedIncome, values.savingsGoal, values.foodDailyBudget, values.commuteDailyBudget, values.commuteDays];
-		if (numericValues.some((value) => !Number.isFinite(value) || value < 0) || !Number.isInteger(values.commuteDays) || values.commuteDays > 31) {
+		if (numericValues.some((value) => !Number.isFinite(value) || value < 0) || !Number.isInteger(values.expectedIncomeDay) || values.expectedIncomeDay < 1 || values.expectedIncomeDay > 31 || !Number.isInteger(values.commuteDays) || values.commuteDays > 31) {
 			return fail(400, { message: 'ตัวเลขไม่ถูกต้อง' });
 		}
-		await saveMonthlyPlan({ userId, month, expectedIncome: values.expectedIncome.toFixed(2), savingsGoal: values.savingsGoal.toFixed(2),
+		await saveMonthlyPlan({ userId, month, expectedIncome: values.expectedIncome.toFixed(2), expectedIncomeDay: values.expectedIncomeDay, savingsGoal: values.savingsGoal.toFixed(2),
 			foodDailyBudget: values.foodDailyBudget.toFixed(2), commuteDailyBudget: values.commuteDailyBudget.toFixed(2), commuteDays: values.commuteDays,
 			budgetAlertsEnabled: values.budgetAlertsEnabled });
 		return { message: 'บันทึกแผนเดือนนี้แล้ว' };
@@ -152,7 +152,7 @@ export const actions: Actions = {
 			refreshedAt: now.toISOString()
 		};
 		const copyPlan = form.get('copyPlan') === 'on' && plan ? {
-			expectedIncome: plan.expectedIncome, savingsGoal: plan.savingsGoal, foodDailyBudget: plan.foodDailyBudget,
+			expectedIncome: plan.expectedIncome, expectedIncomeDay: plan.expectedIncomeDay, savingsGoal: plan.savingsGoal, foodDailyBudget: plan.foodDailyBudget,
 			commuteDailyBudget: plan.commuteDailyBudget, commuteDays: plan.commuteDays,
 			budgetAlertsEnabled: plan.budgetAlertsEnabled
 		} : null;

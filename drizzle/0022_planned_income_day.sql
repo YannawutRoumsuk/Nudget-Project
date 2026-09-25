@@ -1,0 +1,1 @@
+ALTER TABLE "monthly_plans" ADD COLUMN "expected_income_day" integer DEFAULT 1 NOT NULL;

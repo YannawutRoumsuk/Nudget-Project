@@ -5,6 +5,7 @@ import { resolveMonthSelection } from '$lib/month';
 import { deleteTransaction, getTotals, listTransactions } from '$lib/server/db/queries';
 import { requireUserId } from '$lib/server/auth';
 import { toTxView } from '$lib/server/views';
+import { addDays, bangkokDayKey, fromBangkok, formatThaiShortDate } from '$lib/utils/date';
 import type { TxKind } from '$lib/server/db/schema';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -24,7 +25,13 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const month = resolveMonthSelection(url.searchParams.get('month'), now);
 	const rangeId = url.searchParams.get('range') ?? DEFAULT_RANGE;
 	const relativeRange = resolveRange(rangeId, now);
-	const range = relativeRange.id === 'month' ? month : relativeRange;
+	const dayKey = url.searchParams.get('day') ?? '';
+	const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+	const dayParts = match?.slice(1).map(Number);
+	const dayStart = dayParts && dayKey.slice(0, 7) === month.key ? fromBangkok(dayParts[0], dayParts[1], dayParts[2]) : null;
+	const range = dayStart && bangkokDayKey(dayStart) === dayKey
+		? { id: 'day', label: formatThaiShortDate(dayStart), from: dayStart, to: addDays(dayStart, 1), elapsedDays: 1 }
+		: relativeRange.id === 'month' ? month : relativeRange;
 	const kind = parseKind(url.searchParams.get('kind'));
 	const categoryId = parseCategory(url.searchParams.get('category'));
 

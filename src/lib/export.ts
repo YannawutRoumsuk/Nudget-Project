@@ -53,6 +53,7 @@ export interface ExportBillPayment {
 export interface ExportMonthlyPlan {
 	month: string;
 	expectedIncome: string;
+	expectedIncomeDay: number;
 	savingsGoal: string;
 	foodDailyBudget: string;
 	commuteDailyBudget: string;
