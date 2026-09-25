@@ -16,6 +16,7 @@
 	<label>จำนวนเงิน<input name="amount" type="number" min="0.01" step="0.01" value={data.item.amount} required /></label>
 	<label>หมวด<select name="categoryId" required>{#each ALL_CATEGORIES as category}<option value={category.id} selected={category.id === data.item.categoryId}>{category.icon} {category.nameTh}</option>{/each}</select></label>
 	<label>จ่ายด้วย<select name="paymentMethod" value={data.item.paymentMethod}><option value="bank">โอน/บัญชี</option><option value="cash">เงินสด</option><option value="credit_card">บัตรเครดิต</option><option value="shopee_paylater">Shopee PayLater</option><option value="wallet">วอลเล็ต</option></select></label>
+	<label>บัญชีบัตร (ถ้าเป็นบัตรเครดิต)<select name="creditCardId"><option value="">ไม่ระบุบัญชีบัตร</option>{#each data.cards as card}<option value={card.id} selected={card.id === data.item.creditCardId}>{card.name}</option>{/each}</select></label>
 	<label class="wide">รายละเอียด<input name="note" value={data.item.note} /></label>
 	<label>วันที่<input name="date" type="date" value={dateValue} required /></label>
 	<label>เวลา<input name="time" type="time" value={timeValue} required /></label>

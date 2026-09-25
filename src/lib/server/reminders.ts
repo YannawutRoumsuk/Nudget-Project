@@ -10,8 +10,8 @@ import { buildMonthlyLineSummary } from './monthly-summary';
 
 export const INACTIVITY_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-export function reminderKey(billId: number, dueDate: Date): string {
-	return `${billId}:${bangkokDayKey(dueDate)}:${config.reminders.daysBefore}`;
+export function reminderKey(billId: number, dueDate: Date, daysBefore = config.reminders.daysBefore): string {
+	return `${billId}:${bangkokDayKey(dueDate)}:${daysBefore}`;
 }
 
 export function shouldRemind(dueDate: Date, now: Date, daysBefore: number): boolean {
@@ -42,17 +42,18 @@ export async function runReminderCheck(now = new Date()): Promise<void> {
 async function remindUser(user: User, now: Date): Promise<void> {
 	if (bangkokParts(now).hour === config.reminders.hour) {
 		const bills = await listBills(user.id, now);
-		const due = bills.filter((bill) => {
-			const date = billDueDate(bill, now);
-			return !bill.paid && date && shouldRemind(date, now, config.reminders.daysBefore);
-		});
-		for (const bill of due) {
-			const dueDate = billDueDate(bill, now)!;
-			const key = reminderKey(bill.id, dueDate);
+		const reminderOffsets = [...new Set([config.reminders.daysBefore, 0])];
+		for (const bill of bills) {
+			const dueDate = billDueDate(bill, now);
+			if (bill.paid || !dueDate) continue;
+			const reminderOffset = reminderOffsets.find((daysBefore) => shouldRemind(dueDate, now, daysBefore));
+			if (reminderOffset === undefined) continue;
+			const key = reminderKey(bill.id, dueDate, reminderOffset);
 			if (!(await claimReminderDelivery(key, user.id))) continue;
 			const { day, month, year } = bangkokParts(dueDate);
+			const timing = reminderOffset === 0 ? 'ครบกำหนดวันนี้' : `ครบกำหนด ${day}/${month}/${year}`;
 			try {
-				const sent = await pushText(user.lineUserId, `🔔 เตือนบิล\n${bill.name} ${bill.amount.toLocaleString('th-TH')} บาท\nครบกำหนด ${day}/${month}/${year}`);
+				const sent = await pushText(user.lineUserId, `🔔 เตือนบิล\n${bill.name} ${bill.amount.toLocaleString('th-TH')} บาท\n${timing}`);
 				if (!sent) await releaseReminderDelivery(key);
 			} catch (error) {
 				await releaseReminderDelivery(key);
