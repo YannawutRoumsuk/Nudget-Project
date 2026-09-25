@@ -30,7 +30,7 @@
 ## เริ่มใช้งาน (local)
 
 ```bash
-cd D:/Coding/spendbot
+cd D:/Coding/Nudget-Project
 cp .env.example .env      # ถ้ายังไม่มี
 bun install
 bun run db:setup          # docker compose up + push schema + seed หมวดหมู่
@@ -193,9 +193,19 @@ bun run line:rich-menu
 bun run line:rich-menu --setup
 ```
 
+ก่อนเปลี่ยนเมนูจริง ให้ตรวจแผนก่อน:
+
+```bash
+bun run line:rich-menu -- --setup --dry-run
+```
+
+setup จะอัปเดตเมนูชื่อ `Nudget 8-button menu` ที่มีอยู่ก่อน ถ้าพบชื่อซ้ำจะตั้งเมนูหนึ่งเป็นค่าเริ่มต้นก่อนลบเฉพาะรายการชื่อดังกล่าว เมนูอื่นที่ตั้งชื่อเองจะไม่ถูกลบ หาก dry-run แสดงรายการที่ไม่คาดคิดให้หยุดและตรวจ LINE Console ก่อน
+
 ภาพที่สร้างอยู่ที่ `static/line-rich-menu.png` ผังและ prompt สำหรับ Nano Banana อยู่ที่ `docs/rich-menu-nano-banana.md` ถ้ามีภาพสุดท้ายของตัวเองให้ตั้ง `RICH_MENU_IMAGE` ก่อน setup ปุ่ม `สรุปเดือนนี้`/`วิธีใช้` จะส่งข้อความ `เดือนนี้`/`วิธีใช้` กลับเข้าแชท
 
 > Rich menu แสดงเฉพาะแอป LINE บนมือถือ บน iPad และ LINE บนคอมมักไม่ขึ้น — พิมพ์ `เว็บ` เพื่อขอลิงก์แดชบอร์ดแทนได้
+
+การตั้งชื่อ LINE Login channel และตรวจ/ย้อนการตั้งค่าใน LINE Console ต้องทำด้วยมือ ดู [เช็กลิสต์ LINE Console](docs/line-console-checklist.md)
 
 ช่องกรอกด้านบนแดชบอร์ดใช้ parser ตัวเดียวกัน — พิมพ์แบบเดียวกับในแชทได้เลย
 
