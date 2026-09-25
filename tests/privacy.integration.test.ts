@@ -16,7 +16,7 @@ suite('account deletion against PostgreSQL', async () => {
 	const { deleteOwnAccount } = await import('../src/lib/server/db/privacy');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
 	const {
-		adminAuditLogs, aiConversations, billPayments, bills, categories, creditCards, creditInstallments,
+		adminAuditLogs, aiConversations, billPayments, bills, categories, creditCards, creditInstallments, monthClosures,
 		feedback, insights, llmQuota, llmUsage, monthlyCategoryBudgets, monthlyPlans, pendingSlips,
 		releaseDeliveries, reminderDeliveries, transactions
 	} = await import('../src/lib/server/db/schema');
@@ -57,6 +57,7 @@ suite('account deletion against PostgreSQL', async () => {
 		await db.insert(creditInstallments).values({ userId: targetId, creditCardId: card.id, purchaseTransactionId: tx.id, name: 'ผ่อนของ', categoryId: 'food', totalAmount: '600.00', installmentAmount: '100.00', totalInstallments: 6, firstDueDate: new Date('2026-10-01T00:00:00Z') });
 		await db.insert(monthlyPlans).values({ userId: targetId, month: '2026-09', expectedIncome: '30000.00' });
 		await db.insert(monthlyCategoryBudgets).values({ userId: targetId, month: '2026-09', categoryId: 'food', amount: '6000.00' });
+		await db.insert(monthClosures).values({ userId: targetId, month: '2026-08', snapshot: { income: 30000, expense: 12000, remaining: 8000, unpaidBills: 0, unpaidBillCount: 0, categorySpend: [], refreshedAt: '2026-09-01T00:00:00.000Z' }, carryoverMode: 'spendable', carryoverAmount: '8000.00' });
 		await db.insert(pendingSlips).values({ userId: targetId, lineUserId: targetLineId, messageId: 'slip-message', status: 'queued', categoryId: 'food' });
 		await db.insert(reminderDeliveries).values({ userId: targetId, key: 'reminder:one' });
 		await db.insert(feedback).values({ userId: targetId, lineUserId: targetLineId, displayName: 'เจ้าของบัญชี', message: 'ลบทิ้งด้วย' });
@@ -77,6 +78,7 @@ suite('account deletion against PostgreSQL', async () => {
 			db.select().from(creditInstallments).where(userEquals(creditInstallments.userId, targetId)),
 			db.select().from(monthlyPlans).where(userEquals(monthlyPlans.userId, targetId)),
 			db.select().from(monthlyCategoryBudgets).where(userEquals(monthlyCategoryBudgets.userId, targetId)),
+			db.select().from(monthClosures).where(userEquals(monthClosures.userId, targetId)),
 			db.select().from(pendingSlips).where(userEquals(pendingSlips.userId, targetId)),
 			db.select().from(reminderDeliveries).where(userEquals(reminderDeliveries.userId, targetId)),
 			db.select().from(feedback).where(userEquals(feedback.userId, targetId)),
