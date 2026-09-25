@@ -26,7 +26,7 @@ suite('savings goals against PostgreSQL', async () => {
 	});
 
 	it('records contributions atomically without transactions and keeps goals private to each user', async () => {
-		const [{ id: goalId }] = await createSavingsGoal({ userId: userOne, name: 'ฉุกเฉิน', targetAmount: '1000.00', currentAmount: '0.00', targetDate: null, monthlyContribution: '100.00', priority: 1 });
+		const [{ id: goalId }] = await createSavingsGoal({ userId: userOne, name: 'ฉุกเฉิน', goalType: 'emergency', targetAmount: '1000.00', currentAmount: '0.00', targetDate: null, monthlyContribution: '100.00', priority: 1 });
 		expect(await addSavingsGoalContribution(userOne, goalId, '125.50')).toBe(true);
 		expect(await addSavingsGoalContribution(userTwo, goalId, '100.00')).toBe(false);
 		expect((await listSavingsGoals(userOne)).map((goal) => goal.currentAmount)).toEqual(['125.50']);

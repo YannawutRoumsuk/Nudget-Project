@@ -17,16 +17,17 @@ function validDate(value: string): Date | null | undefined {
 }
 function fields(form: FormData) {
 	const name = String(form.get('name') ?? '').trim().slice(0, 80);
+	const goalType = String(form.get('goalType') ?? 'planned');
 	const targetAmount = amount(form, 'targetAmount');
 	const currentAmount = amount(form, 'currentAmount', 0);
 	const monthlyContribution = amount(form, 'monthlyContribution', 0);
 	const priority = amount(form, 'priority', 3);
 	const targetDate = validDate(String(form.get('targetDate') ?? ''));
-	if (!name || !Number.isFinite(targetAmount) || targetAmount <= 0 || targetAmount > MAX_AMOUNT ||
+	if (!name || !['emergency', 'planned'].includes(goalType) || !Number.isFinite(targetAmount) || targetAmount <= 0 || targetAmount > MAX_AMOUNT ||
 		!Number.isFinite(currentAmount) || currentAmount < 0 || currentAmount > targetAmount ||
 		!Number.isFinite(monthlyContribution) || monthlyContribution < 0 || monthlyContribution > MAX_AMOUNT ||
 		!Number.isInteger(priority) || priority < 1 || priority > 5 || targetDate === undefined) return null;
-	return { name, targetAmount: targetAmount.toFixed(2), currentAmount: currentAmount.toFixed(2), targetDate,
+	return { name, goalType: goalType as 'emergency' | 'planned', targetAmount: targetAmount.toFixed(2), currentAmount: currentAmount.toFixed(2), targetDate,
 		monthlyContribution: monthlyContribution.toFixed(2), priority };
 }
 
@@ -55,7 +56,7 @@ export const actions: Actions = {
 		if (!value || !Number.isInteger(id) || id < 1) {
 			return fail(400, { message: 'ตรวจข้อมูลเป้าหมายอีกครั้ง โดยยอดเป้าหมายต้องไม่น้อยกว่ายอดที่เก็บแล้ว' });
 		}
-		const [updated] = await updateSavingsGoal(userId, id, { name: value.name, targetAmount: value.targetAmount,
+		const [updated] = await updateSavingsGoal(userId, id, { name: value.name, goalType: value.goalType, targetAmount: value.targetAmount,
 			targetDate: value.targetDate, monthlyContribution: value.monthlyContribution, priority: value.priority });
 		return updated ? { message: 'บันทึกการแก้ไขแล้ว' } : fail(404, { message: 'เป้าหมายนี้แก้ไขไม่ได้หรือไม่พบข้อมูล' });
 	},

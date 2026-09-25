@@ -12,7 +12,7 @@ import {
 
 function fixture(): PersonalExport {
 	return {
-		schemaVersion: 5,
+		schemaVersion: 6,
 		generatedAt: '2026-09-07T09:30:00+07:00',
 		timezone: 'Asia/Bangkok',
 		selection: { from: '2026-08-31', to: '2026-09-02' },
