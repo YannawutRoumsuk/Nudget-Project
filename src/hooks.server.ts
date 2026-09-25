@@ -25,7 +25,7 @@ if (!building && process.env.NODE_ENV !== 'test' && config.reminders.mode === 't
 }
 
 /** The webhook authenticates with LINE's signature, not with the dashboard session. */
-const PUBLIC_PREFIXES = ['/login', '/api/line', '/api/auth/line'];
+const PUBLIC_PREFIXES = ['/login', '/api/line', '/api/auth/line', '/health/', '/api/health/'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const lineUserId = verifySessionToken(event.cookies.get(SESSION_COOKIE));

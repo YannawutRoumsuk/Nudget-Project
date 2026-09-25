@@ -277,6 +277,22 @@ export const processedEvents = pgTable('processed_events', {
 	processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow()
 });
 
+/** Low-cardinality operational counters only; never store payloads, identities, or secrets. */
+export const systemEvents = pgTable(
+	'system_events',
+	{
+		id: serial('id').primaryKey(),
+		eventType: varchar('event_type', { length: 24 }).notNull(),
+		success: boolean('success').notNull().default(true),
+		errorCode: varchar('error_code', { length: 32 }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('system_events_type_created_idx').on(t.eventType, t.createdAt),
+		index('system_events_created_at_idx').on(t.createdAt)
+	]
+);
+
 /**
  * What a person told us in their own words. Kept even after the account is
  * revoked: the point of feedback is to survive the conversation that produced it.
@@ -381,7 +397,11 @@ export const llmUsage = pgTable(
 		errorCode: varchar('error_code', { length: 32 }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [index('llm_usage_user_created_idx').on(t.userId, t.createdAt)]
+	(t) => [
+		index('llm_usage_user_created_idx').on(t.userId, t.createdAt),
+		index('llm_usage_provider_created_idx').on(t.provider, t.createdAt),
+		index('llm_usage_created_at_idx').on(t.createdAt)
+	]
 );
 
 export type User = typeof users.$inferSelect;
