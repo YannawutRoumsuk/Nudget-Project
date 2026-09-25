@@ -56,6 +56,7 @@ import {
 import { formatNumber, toNumber } from '$lib/utils/money';
 import { getDisplayName, pushText, replyQuickReplies, replyText } from './client';
 import { buildMonthlyLineSummary } from '../monthly-summary';
+import { answerFinanceQuestion } from '../finance-query';
 import { isQuietHour } from '$lib/reminder-time';
 import { isValidTimeZone, parseNotificationCommand } from '$lib/notification-settings';
 import {
@@ -246,6 +247,12 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		await sendQuietly(() => replyText(event.replyToken as string, answer.text));
 		return;
 	}
+	if (!pending && isFinanceQuestion(text)) {
+		if (!(await claimEvent(eventId))) return;
+		const answer = await answerFinanceQuestion(user.id, text, sentAt);
+		await sendQuietly(() => replyText(event.replyToken as string, answer));
+		return;
+	}
 	const command = matchCommand(text);
 	// Monthly AI runs outside the ledger transaction so a provider call never
 	// occupies a database connection. Claiming the webhook first prevents a LINE retry from spending twice.
@@ -290,6 +297,12 @@ async function handleEvent(event: LineEvent): Promise<void> {
 		// The ledger is committed; a failed confirmation must not repeat mutations.
 		console.error('[line] confirmation failed:', error);
 	}
+}
+
+function isFinanceQuestion(text: string): boolean {
+	const value = text.trim();
+	if (/^(?:ถาม|ยอด|สรุปยอด)\s*/i.test(value)) return true;
+	return /(?:เท่าไหร่|เท่าไร|กี่บาท|เปรียบเทียบ|เทียบ|มากกว่าเดือนก่อน|น้อยกว่าเดือนก่อน)/i.test(value);
 }
 
 type LineResponse =

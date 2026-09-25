@@ -142,6 +142,26 @@ suite('membership against a real database', async () => {
 		expect(special.excludeFromBaseline).toBe(true);
 	});
 
+	it('keeps natural-language finance aggregates scoped to the owner and requested filters', async () => {
+		const accountA = await admit('Uquery-a');
+		const accountB = await admit('Uquery-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		await db.insert(categories).values({ id: 'transport', nameTh: 'เดินทาง', nameEn: 'Transport', kind: 'expense', icon: '🚕', color: '#00f' }).onConflictDoNothing();
+		await db.insert(transactions).values([
+			{ userId: userA, kind: 'expense', amount: '60.00', categoryId: 'food', note: 'ข้าว', occurredAt: new Date('2026-09-01T05:00:00Z'), paymentMethod: 'cash', source: 'web', parsedBy: 'manual' },
+			{ userId: userA, kind: 'expense', amount: '100.00', categoryId: 'transport', note: 'รถ', occurredAt: new Date('2026-09-02T05:00:00Z'), paymentMethod: 'bank', source: 'web', parsedBy: 'manual' },
+			{ userId: userB, kind: 'expense', amount: '9000.00', categoryId: 'food', note: 'ข้อมูลอีกบัญชี', occurredAt: new Date('2026-09-01T05:00:00Z'), paymentMethod: 'cash', source: 'web', parsedBy: 'manual' }
+		]);
+		const { getFinanceQueryAggregate } = await import('../src/lib/server/db/queries');
+		const result = await getFinanceQueryAggregate(userA, {
+			from: new Date('2026-08-31T17:00:00Z'), to: new Date('2026-09-30T17:00:00Z'),
+			kind: 'expense', categoryIds: ['food'], paymentMethod: 'cash', groupBy: 'category'
+		});
+		expect(result.totals).toMatchObject({ expense: 60, income: 0, count: 1 });
+		expect(result.breakdown).toEqual([{ key: 'food', amount: 60, count: 1 }]);
+	});
+
 	it('exports only the signed-in account across every owned table', async () => {
 		const accountA = await admit('Uaccount-a', async () => 'คนเอ');
 		const accountB = await admit('Uaccount-b', async () => 'คนบี');

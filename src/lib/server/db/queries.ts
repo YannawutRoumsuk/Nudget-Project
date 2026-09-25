@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, not, notExists, notInArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, not, notExists, notInArray, or, sql } from 'drizzle-orm';
 import { FIXED_EXPENSE_CATEGORY_IDS } from '$lib/categories';
 import { deferredBillForTransaction } from '$lib/deferred';
 import { db } from './index';
@@ -42,6 +42,15 @@ export interface CategorySlice {
 	categoryId: string;
 	total: number;
 	count: number;
+}
+
+export interface FinanceQueryAggregate {
+	from: Date;
+	to: Date;
+	kind: TxKind | 'both';
+	categoryIds: string[];
+	paymentMethod: PaymentMethod | null;
+	groupBy: 'none' | 'category' | 'paymentMethod';
 }
 
 export interface DayPoint {
@@ -294,6 +303,44 @@ export async function getByCategory(userId: number, range: Range, kind: TxKind, 
 	}));
 }
 
+/** A fixed, owner-scoped aggregate used by the LINE natural-language query. */
+export async function getFinanceQueryAggregate(userId: number, filter: FinanceQueryAggregate) {
+	const where = and(
+		ownedInRange(userId, { from: filter.from, to: filter.to }),
+		filter.kind === 'both' ? undefined : eq(transactions.kind, filter.kind),
+		filter.categoryIds.length ? inArray(transactions.categoryId, filter.categoryIds) : undefined,
+		filter.paymentMethod ? eq(transactions.paymentMethod, filter.paymentMethod) : undefined
+	);
+	const rows = await db.select({
+		kind: transactions.kind,
+		categoryId: transactions.categoryId,
+		paymentMethod: transactions.paymentMethod,
+		total: sql<string>`coalesce(sum(${transactions.amount}), 0)`,
+		count: sql<string>`count(*)`
+	}).from(transactions).where(where).groupBy(transactions.kind, transactions.categoryId, transactions.paymentMethod);
+	const totals: Totals = { income: 0, expense: 0, net: 0, count: 0 };
+	const grouped = new Map<string, { amount: number; count: number }>();
+	for (const row of rows) {
+		const amount = toNumber(row.total);
+		const count = Number(row.count);
+		if (row.kind === 'income') totals.income += amount;
+		else totals.expense += amount;
+		totals.count += count;
+		const groupKey = filter.groupBy === 'category' ? row.categoryId : filter.groupBy === 'paymentMethod' ? row.paymentMethod : '';
+		if (groupKey) {
+			const current = grouped.get(groupKey) ?? { amount: 0, count: 0 };
+			current.amount += amount;
+			current.count += count;
+			grouped.set(groupKey, current);
+		}
+	}
+	totals.net = totals.income - totals.expense;
+	return {
+		totals,
+		breakdown: [...grouped].map(([key, value]) => ({ key, ...value })).sort((a, b) => b.amount - a.amount)
+	};
+}
+
 export async function getDailySeries(userId: number, range: Range, options: { excludeFixed?: boolean } = {}): Promise<DayPoint[]> {
 	const rows = await db
 		.select({
@@ -339,11 +386,12 @@ export async function getDailyCashflowSeries(userId: number, range: Range): Prom
 export async function listTransactions(
 	userId: number,
 	range: Range,
-	options: { limit?: number; kind?: TxKind; categoryId?: string; excludeMarked?: boolean } = {}
+	options: { limit?: number; kind?: TxKind; categoryId?: string; paymentMethod?: PaymentMethod; excludeMarked?: boolean } = {}
 ): Promise<Transaction[]> {
 	const filters = [ownedInRange(userId, range, options.excludeMarked)];
 	if (options.kind) filters.push(eq(transactions.kind, options.kind));
 	if (options.categoryId) filters.push(eq(transactions.categoryId, options.categoryId));
+	if (options.paymentMethod) filters.push(eq(transactions.paymentMethod, options.paymentMethod));
 
 	return db
 		.select()
