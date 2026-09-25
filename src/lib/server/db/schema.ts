@@ -110,6 +110,35 @@ export const monthlyCategoryBudgets = pgTable(
 	]
 );
 
+export type MonthCloseCarryover = 'spendable' | 'savings' | 'none';
+export interface MonthCloseSnapshot {
+	income: number;
+	expense: number;
+	remaining: number;
+	unpaidBills: number;
+	unpaidBillCount: number;
+	categorySpend: Array<{ categoryId: string; amount: number }>;
+	refreshedAt: string;
+}
+
+/** One close per owner and month; refreshing updates the live snapshot without replaying copies. */
+export const monthClosures = pgTable(
+	'month_closures',
+	{
+		userId: ownerId(),
+		month: varchar('month', { length: 7 }).notNull(),
+		snapshot: jsonb('snapshot').notNull().$type<MonthCloseSnapshot>(),
+		carryoverMode: varchar('carryover_mode', { length: 12 }).notNull().$type<MonthCloseCarryover>(),
+		carryoverAmount: numeric('carryover_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+		copiedPlan: boolean('copied_plan').notNull().default(false),
+		copiedBudgets: boolean('copied_budgets').notNull().default(false),
+		carriedBillCount: integer('carried_bill_count').notNull().default(0),
+		closedAt: timestamp('closed_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.month] }), index('month_closures_month_idx').on(t.month)]
+);
+
 /** Card metadata only; never store a full card number or security code. */
 export const creditCards = pgTable(
 	'credit_cards',
