@@ -12,7 +12,7 @@ import {
 
 function fixture(): PersonalExport {
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		generatedAt: '2026-09-07T09:30:00+07:00',
 		timezone: 'Asia/Bangkok',
 		selection: { from: '2026-08-31', to: '2026-09-02' },
@@ -20,6 +20,7 @@ function fixture(): PersonalExport {
 			transactions: 'selected_range',
 			billPayments: 'selected_range',
 			monthlyPlans: 'overlapping_months',
+			learnedCategories: 'all_saved',
 			bills: 'all_saved'
 		},
 		account: { displayName: 'คุณทดสอบ', createdAt: '2026-01-01T00:00:00+07:00' },
@@ -32,7 +33,8 @@ function fixture(): PersonalExport {
 			{ id: 9, name: 'ค่าไฟ', amount: '899.90', categoryId: 'bills', categoryNameTh: 'บิลและสาธารณูปโภค', paymentMethod: 'bank', recurrence: 'monthly', dueDay: 15, dueDate: null, active: true, createdAt: '2026-01-01T00:00:00+07:00', updatedAt: '2026-09-01T00:00:00+07:00' }
 		],
 		billPayments: [],
-		monthlyPlans: []
+		monthlyPlans: [],
+		learnedCategories: [{ keyword: 'grab', categoryId: 'transport', categoryNameTh: 'เดินทาง', matchCount: 2, savedLlmCalls: 1, createdAt: '2026-01-01T00:00:00+07:00', updatedAt: '2026-09-01T00:00:00+07:00' }]
 	};
 }
 

@@ -61,8 +61,18 @@ export interface ExportMonthlyPlan {
 	updatedAt: string;
 }
 
+export interface ExportLearnedCategory {
+	keyword: string;
+	categoryId: string;
+	categoryNameTh: string;
+	matchCount: number;
+	savedLlmCalls: number;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export interface PersonalExport {
-	schemaVersion: 1;
+	schemaVersion: 2;
 	generatedAt: string;
 	timezone: typeof EXPORT_TIMEZONE;
 	selection: { from: string; to: string };
@@ -70,6 +80,7 @@ export interface PersonalExport {
 		transactions: 'selected_range';
 		billPayments: 'selected_range';
 		monthlyPlans: 'overlapping_months';
+		learnedCategories: 'all_saved';
 		bills: 'all_saved';
 	};
 	account: { displayName: string; createdAt: string } | null;
@@ -78,6 +89,7 @@ export interface PersonalExport {
 	bills: ExportBill[];
 	billPayments: ExportBillPayment[];
 	monthlyPlans: ExportMonthlyPlan[];
+	learnedCategories: ExportLearnedCategory[];
 }
 
 export function parseExportSelection(params: URLSearchParams, now = new Date()): ExportSelection {

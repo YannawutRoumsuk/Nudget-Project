@@ -1,6 +1,9 @@
 import { parseInstallment } from './installment';
 import { parseByLlm } from './llm';
 import { extractDate, matchCommand, normalize, parseByRules } from './rules';
+import { getCategory } from '$lib/categories';
+import { extractLearningKeyword } from '$lib/learned-categories';
+import { findLearnedCategory } from '$lib/server/db/learned-categories';
 import type { ParseOutcome } from './types';
 
 export * from './types';
@@ -32,10 +35,34 @@ export async function parseMessage(rawText: string, now = new Date(), options: P
 	if (plan) return { type: 'installment', plan };
 
 	const ruled = parseByRules(rawText, now);
+	const hasSpecificKeyword = Boolean(options.userId && extractLearningKeyword(rawText));
+	const learned = hasSpecificKeyword && ruled?.tx ? await findLearnedCategory(options.userId!, rawText, ruled.tx.kind) : null;
+	if (ruled && learned && learned.kind === ruled.tx.kind) {
+		const category = getCategory(learned.categoryId);
+		if (category?.kind === ruled.tx.kind && (learned.categoryId !== ruled.tx.categoryId || !ruled.categoryMatched)) {
+			const avoidedLlm = !ruled.categoryMatched;
+			ruled.tx.categoryId = learned.categoryId;
+			ruled.tx.learnedRuleId = learned.id;
+			ruled.tx.learnedAvoidedLlm = avoidedLlm;
+			ruled.categoryMatched = true;
+			return { type: 'transaction', tx: ruled.tx };
+		}
+	}
 	if (ruled?.categoryMatched) return { type: 'transaction', tx: ruled.tx };
 
 	const guessed = await parseByLlm(rawText, now, options.userId);
-	if (guessed) return { type: 'transaction', tx: guessed };
+	if (guessed) {
+		const learnedForGuess = learned?.kind === guessed.kind ? learned : hasSpecificKeyword && options.userId
+			? await findLearnedCategory(options.userId, rawText, guessed.kind)
+			: null;
+		const category = learnedForGuess ? getCategory(learnedForGuess.categoryId) : null;
+		if (learnedForGuess && category?.kind === guessed.kind && learnedForGuess.categoryId !== guessed.categoryId) {
+			guessed.categoryId = learnedForGuess.categoryId;
+			guessed.learnedRuleId = learnedForGuess.id;
+			guessed.learnedAvoidedLlm = false;
+		}
+		return { type: 'transaction', tx: guessed };
+	}
 
 	// LLM unavailable or unhelpful: an uncategorised rule hit still beats
 	// throwing the entry away.

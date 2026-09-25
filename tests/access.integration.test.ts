@@ -22,7 +22,7 @@ suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
 	const { listMembers, setUserActive, getUserByLineId, touchUserActivity, updateNotificationPreferences } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
-	const { billPayments, bills, categories, creditCards, monthlyCategoryBudgets, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
+	const { billPayments, bills, categories, creditCards, monthlyCategoryBudgets, monthlyPlans, transactions, userCategoryRules, users } = await import('../src/lib/server/db/schema');
 
 	beforeEach(async () => {
 		await db.delete(transactions);
@@ -162,6 +162,26 @@ suite('membership against a real database', async () => {
 		expect(result.breakdown).toEqual([{ key: 'food', amount: 60, count: 1 }]);
 	});
 
+	it('keeps learned merchant rules per owner and counts only that owner’s avoided fallback calls', async () => {
+		const accountA = await admit('Ulearn-a');
+		const accountB = await admit('Ulearn-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		await db.insert(categories).values({ id: 'transport', nameTh: 'เดินทาง', nameEn: 'Transport', kind: 'expense', icon: '🚕', color: '#00f' }).onConflictDoNothing();
+		const [ruleA] = await db.insert(userCategoryRules).values([
+			{ userId: userA, keyword: 'grab', categoryId: 'transport' },
+			{ userId: userB, keyword: 'grab', categoryId: 'food' }
+		]).returning();
+		const { findLearnedCategory, recordLearnedCategoryMatch } = await import('../src/lib/server/db/learned-categories');
+		expect(await findLearnedCategory(userA, 'Grab 100', 'expense')).toMatchObject({ id: ruleA.id, categoryId: 'transport' });
+		expect(await findLearnedCategory(userA, 'Grab 100', 'income')).toBeNull();
+		await recordLearnedCategoryMatch(ruleA.id, userA, true);
+		await recordLearnedCategoryMatch(ruleA.id, userB, true);
+		const rules = await db.select().from(userCategoryRules);
+		expect(rules.find((rule) => rule.id === ruleA.id)).toMatchObject({ matchCount: 1, savedLlmCalls: 1 });
+		expect(rules).toHaveLength(2);
+	});
+
 	it('exports only the signed-in account across every owned table', async () => {
 		const accountA = await admit('Uaccount-a', async () => 'คนเอ');
 		const accountB = await admit('Uaccount-b', async () => 'คนบี');
@@ -184,6 +204,10 @@ suite('membership against a real database', async () => {
 			{ userId: userA, month: '2026-09', expectedIncome: '1000.10' },
 			{ userId: userB, month: '2026-09', expectedIncome: '2000.20' }
 		]);
+		await db.insert(userCategoryRules).values([
+			{ userId: userA, keyword: 'grab', categoryId: 'food', matchCount: 4, savedLlmCalls: 2 },
+			{ userId: userB, keyword: 'shoppee', categoryId: 'food', matchCount: 9, savedLlmCalls: 8 }
+		]);
 
 		const { parseExportSelection } = await import('../src/lib/export');
 		const { getPersonalExport } = await import('../src/lib/server/db/exports');
@@ -202,8 +226,10 @@ suite('membership against a real database', async () => {
 		expect(exported.billPayments.map((row) => row.billId)).toEqual([billA.id]);
 		expect(exported.billPayments.map((row) => row.transactionId)).toEqual([txA.id]);
 		expect(exported.monthlyPlans.map((row) => row.expectedIncome)).toEqual(['1000.10']);
+		expect(exported.learnedCategories.map((row) => row.keyword)).toEqual(['grab']);
 		expect(JSON.stringify(exported)).not.toContain('คนบี');
 		expect(JSON.stringify(exported)).not.toContain('70.50');
+		expect(JSON.stringify(exported)).not.toContain('shoppee');
 		const { billsCsv } = await import('../src/lib/export');
 		expect(billsCsv(exported)).toContain('"2026-09-01"');
 	});

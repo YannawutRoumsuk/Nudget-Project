@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, lt, not, notExists, notInArray, or, sql } from 'drizzle-orm';
 import { FIXED_EXPENSE_CATEGORY_IDS } from '$lib/categories';
 import { deferredBillForTransaction } from '$lib/deferred';
+import { rememberCategoryFromEdit } from './learned-categories';
 import { db } from './index';
 import { bills, creditCards, creditInstallments, processedEvents, reminderDeliveries, transactions } from './schema';
 import type { NewTransaction, PaymentMethod, Transaction, TxKind } from './schema';
@@ -161,6 +162,7 @@ export async function updateTransaction(
 		const [row] = await executor.update(transactions).set({ ...values, creditCardId })
 			.where(and(eq(transactions.id, id), eq(transactions.userId, userId))).returning();
 		if (row) {
+			if (row.categoryId !== existing.categoryId) await rememberCategoryFromEdit(userId, row.categoryId, row.note, existing.rawText, executor);
 			if (plan) {
 				await executor.update(creditInstallments).set({
 					creditCardId: row.creditCardId!,

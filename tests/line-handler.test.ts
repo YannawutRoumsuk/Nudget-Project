@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 	listBills: vi.fn(), markBillPaid: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), touchUserActivity: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
-	claimEvent: vi.fn(), answerAiHelp: vi.fn(), answerFinanceQuestion: vi.fn(),
+	claimEvent: vi.fn(), answerAiHelp: vi.fn(), answerFinanceQuestion: vi.fn(), rememberCategoryFromEdit: vi.fn(), recordLearnedCategoryMatch: vi.fn(),
 	buildMonthlyLineSummary: vi.fn(),
 	updateLatestTransactionNote: vi.fn(),
 	config: { line: { allowedUserIds: ['owner'] }, ocr: { mode: 'inline' }, llm: { helpDailyLimit: 3 }, publicBaseUrl: 'https://nudget.example' }
@@ -36,6 +36,7 @@ vi.mock('$lib/server/db/feedback', () => ({
 vi.mock('$lib/server/db/queries', () => mocks);
 vi.mock('$lib/server/help/generate', () => ({ answerAiHelp: mocks.answerAiHelp }));
 vi.mock('$lib/server/finance-query', () => ({ answerFinanceQuestion: mocks.answerFinanceQuestion }));
+vi.mock('$lib/server/db/learned-categories', () => ({ rememberCategoryFromEdit: mocks.rememberCategoryFromEdit, recordLearnedCategoryMatch: mocks.recordLearnedCategoryMatch }));
 vi.mock('$lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: mocks.buildMonthlyLineSummary }));
 vi.mock('$lib/server/db/slips', () => ({
 	getPendingSlip: mocks.getPendingSlip,
@@ -116,6 +117,7 @@ beforeEach(() => {
 		kind: 'expense', amount: 60, categoryId: 'food', note: 'ข้าว',
 		occurredAt: new Date(event.timestamp!), parsedBy: 'rule'
 	} });
+	mocks.recordLearnedCategoryMatch.mockResolvedValue(undefined);
 	mocks.processEventOnce.mockImplementation((_id, work) => work(executor));
 	mocks.insertTransaction.mockImplementation(async (tx) => ({ id: 1, ...tx }));
 	mocks.insertTransactionIfUnique.mockImplementation(async (tx) => ({ id: 1, ...tx }));
@@ -146,6 +148,20 @@ describe('LINE processing', () => {
 		expect(mocks.answerFinanceQuestion).toHaveBeenCalledWith(owner.id, 'อาทิตย์นี้กินข้าวไปเท่าไร', expect.any(Date));
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('฿840'));
 		expect(mocks.parseMessage).not.toHaveBeenCalled();
+	});
+
+	it('counts a learned fallback only after a unique transaction is inserted', async () => {
+		mocks.parseMessage.mockResolvedValue({ type: 'transaction', tx: {
+			kind: 'expense', amount: 60, categoryId: 'food', note: 'Grab', occurredAt: new Date(event.timestamp!), parsedBy: 'rule',
+			learnedRuleId: 12, learnedAvoidedLlm: true
+		} });
+		await handleEvents([event]);
+		expect(mocks.recordLearnedCategoryMatch).toHaveBeenCalledWith(12, owner.id, true, executor);
+
+		mocks.recordLearnedCategoryMatch.mockClear();
+		mocks.insertTransactionIfUnique.mockResolvedValueOnce(null);
+		await handleEvents([{ ...event, webhookEventId: 'event-duplicate', message: { ...event.message!, id: 'message-duplicate' } }]);
+		expect(mocks.recordLearnedCategoryMatch).not.toHaveBeenCalled();
 	});
 
 	it('marks an owned bill paid exactly once from its current notification', async () => {
@@ -358,6 +374,7 @@ describe('LINE processing', () => {
 			userId: owner.id, amount: '100.00', categoryId: 'other', parsedBy: 'ocr'
 		}), executor);
 		expect(mocks.deleteOwnedPendingSlip).toHaveBeenCalledWith(7, owner.id, executor);
+		expect(mocks.rememberCategoryFromEdit).toHaveBeenCalledWith(owner.id, 'other', pendingReady.note, pendingReady.recipient, executor);
 		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('บันทึกแล้ว'));
 	});
 

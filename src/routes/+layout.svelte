@@ -13,6 +13,7 @@
 		{ href: '/cards', label: 'บัตรเครดิต' },
 		{ href: '/plan', label: 'แผนเดือน' },
 		{ href: '/cashflow', label: 'กระแสเงินสด' },
+		{ href: '/learned-categories', label: 'กฎหมวดหมู่' },
 		{ href: '/export', label: 'ส่งออก' },
 		{ href: '/privacy', label: 'ข้อมูลส่วนตัว' },
 		{ href: '/feedback', label: 'ฟีดแบ็ก' },
@@ -21,7 +22,7 @@
 	]);
 	const selectedMonth = $derived(isMonthKey(page.url.searchParams.get('month')) ? page.url.searchParams.get('month') : null);
 	/** Pages with no notion of a month, so the picker's choice must not follow them. */
-	const MONTHLESS = ['/members', '/feedback', '/notifications', '/ai-conversations', '/cards', '/status', '/privacy'];
+	const MONTHLESS = ['/members', '/feedback', '/notifications', '/ai-conversations', '/cards', '/status', '/privacy', '/learned-categories'];
 	const navHref = (href: string) =>
 		selectedMonth && !MONTHLESS.includes(href) ? `${href}?month=${selectedMonth}` : href;
 
