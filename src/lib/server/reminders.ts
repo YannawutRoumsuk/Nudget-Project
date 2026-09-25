@@ -2,13 +2,15 @@ import { billDueDate } from '$lib/bills';
 import { bangkokDayStart, addDays, addMonths, bangkokDayKey, bangkokMonthKey, fromBangkok, bangkokParts } from '$lib/utils/date';
 import { isInQuietHours, zonedClock } from '$lib/reminder-time';
 import { listBills } from './db/bills';
-import { claimReminderDelivery, releaseReminderDelivery } from './db/queries';
+import { claimReminderDelivery, hasReminderDelivery, releaseReminderDelivery } from './db/queries';
 import { listUsers } from './db/users';
 import type { User } from './db/schema';
 import { config } from './config';
 import { pushText } from './line/client';
 import { buildMonthlyLineSummary } from './monthly-summary';
 import { sendBudgetThresholdAlerts } from './budget-alerts';
+import { billReminderStage, buildBillReminderMessages, type BillReminderItem, type BillReminderStage } from './bill-reminder-message';
+import { pushFlex } from './line/client';
 
 export const INACTIVITY_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -48,23 +50,23 @@ async function remindUser(user: User, now: Date): Promise<void> {
 	if (!quiet && local.hour === user.notificationHour) {
 		await sendBudgetThresholdAlerts(user.id, user.lineUserId, now);
 		const bills = await listBills(user.id, now);
-		const reminderOffsets = [...new Set([config.reminders.daysBefore, 0])];
+		const grouped: Record<BillReminderStage, Array<{ item: BillReminderItem; key: string }>> = { upcoming: [], due: [], overdue: [] };
+		const today = bangkokDayKey(now);
 		for (const bill of bills) {
 			const dueDate = billDueDate(bill, now);
 			if (bill.paid || !dueDate) continue;
-			const reminderOffset = reminderOffsets.find((daysBefore) => shouldRemind(dueDate, now, daysBefore));
-			if (reminderOffset === undefined) continue;
-			const key = reminderKey(bill.id, dueDate, reminderOffset);
-			if (!(await claimReminderDelivery(key, user.id))) continue;
-			const { day, month, year } = bangkokParts(dueDate);
-			const timing = reminderOffset === 0 ? 'ครบกำหนดวันนี้' : `ครบกำหนด ${day}/${month}/${year}`;
-			try {
-				const sent = await pushText(user.lineUserId, `🔔 เตือนบิล\n${bill.name} ${bill.amount.toLocaleString('th-TH')} บาท\n${timing}`);
-				if (!sent) await releaseReminderDelivery(key);
-			} catch (error) {
-				await releaseReminderDelivery(key);
-				throw error;
-			}
+			const daysUntilDue = Math.round((bangkokDayStart(dueDate).getTime() - bangkokDayStart(now).getTime()) / 86_400_000);
+			const stage = billReminderStage(daysUntilDue, user.billReminderDaysBefore);
+			if (!stage) continue;
+			const snoozeKey = `bill-snooze:${bill.id}:${bill.period}:${today}`;
+			if (await hasReminderDelivery(snoozeKey, user.id)) continue;
+			const key = stage === 'overdue'
+				? `bill:${bill.id}:${bill.period}:overdue:${today}`
+				: reminderKey(bill.id, dueDate, stage === 'due' ? 0 : user.billReminderDaysBefore);
+			grouped[stage].push({ item: { id: bill.id, name: bill.name, amount: bill.amount, period: bill.period, dueDate, stage }, key });
+		}
+		for (const stage of ['upcoming', 'due', 'overdue'] as const) {
+			await sendBillReminderStage(user, grouped[stage]);
 		}
 		if (local.day === 1) {
 			const previousMonth = bangkokMonthKey(addMonths(fromBangkok(local.year, local.month, 1), -1));
@@ -72,6 +74,28 @@ async function remindUser(user: User, now: Date): Promise<void> {
 		}
 	}
 	if (!quiet) await sendInactivityReminder(user, now);
+}
+
+async function sendBillReminderStage(
+	user: User,
+	entries: Array<{ item: BillReminderItem; key: string }>
+): Promise<void> {
+	const claimed: typeof entries = [];
+	for (const entry of entries) {
+		if (await claimReminderDelivery(entry.key, user.id)) claimed.push(entry);
+	}
+	const messages = buildBillReminderMessages(claimed.map(({ item }) => item), config.publicBaseUrl ? `${config.publicBaseUrl}/bills` : '');
+	for (let offset = 0; offset < messages.length; offset++) {
+		const chunk = claimed.slice(offset * 12, (offset + 1) * 12);
+		try {
+			if (!await pushFlex(user.lineUserId, messages[offset].altText, messages[offset].contents)) {
+				await Promise.all(chunk.map(({ key }) => releaseReminderDelivery(key)));
+			}
+		} catch (error) {
+			await Promise.all(chunk.map(({ key }) => releaseReminderDelivery(key)));
+			throw error;
+		}
+	}
 }
 
 export function inactivityReminderKey(user: Pick<User, 'id' | 'lastActivityAt'>, now: Date): string | null {

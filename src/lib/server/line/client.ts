@@ -78,6 +78,10 @@ export async function pushButtons(to: string, text: string, actions: PostbackAct
 	return post(PUSH_URL, { to, messages: [toButtonsMessage(text, actions)] });
 }
 
+export async function pushFlex(to: string, altText: string, contents: Record<string, unknown>): Promise<boolean> {
+	return post(PUSH_URL, { to, messages: [{ type: 'flex', altText: altText.slice(0, 400), contents }] });
+}
+
 export async function replyButtons(replyToken: string, text: string, actions: PostbackAction[]): Promise<void> {
 	await post(REPLY_URL, { replyToken, messages: [toButtonsMessage(text, actions)] });
 }

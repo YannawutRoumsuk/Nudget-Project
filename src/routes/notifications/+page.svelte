@@ -19,6 +19,7 @@
 	<p class="hint">ปิดแล้วจะหยุดเตือนการไม่ใช้งาน บิล งบรายหมวด และสรุปเดือน</p>
 	<label>เวลาส่งเตือนบิลและสรุปประจำเดือน<input name="notificationHour" type="time" value={timeValue(data.preferences.notificationHour)} required /></label>
 	<label>เขตเวลา (ตัวอย่าง Asia/Bangkok)<input name="timezone" value={data.preferences.timezone} maxlength="64" autocomplete="off" required /></label>
+	<label>เตือนบิลก่อนครบกำหนด (วัน)<input name="billReminderDaysBefore" type="number" min="0" max="31" step="1" value={data.preferences.billReminderDaysBefore} required /></label>
 	<div class="quiet">
 		<label>เริ่มงดรบกวน<input name="quietHoursStart" type="time" value={timeValue(data.preferences.quietHoursStart)} required /></label>
 		<label>สิ้นสุดงดรบกวน<input name="quietHoursEnd" type="time" value={timeValue(data.preferences.quietHoursEnd)} required /></label>
@@ -34,6 +35,7 @@
 		<li><code>ตั้งค่าเตือน</code> — ดูสถานะปัจจุบัน</li>
 		<li><code>ตั้งค่าเตือน ปิด</code> หรือ <code>ตั้งค่าเตือน เปิด</code></li>
 		<li><code>ตั้งค่าเตือน เวลา 20</code> — เปลี่ยนเวลาส่งสรุปเป็น 20:00</li>
+		<li><code>ตั้งค่าเตือน ก่อน 5 วัน</code> — เปลี่ยนจำนวนวันเตือนบิลล่วงหน้า</li>
 		<li><code>ตั้งค่าเตือน เขตเวลา Asia/Tokyo</code></li>
 	</ul>
 </section>

@@ -13,11 +13,12 @@ import {
 	createFeedback
 } from '$lib/server/db/feedback';
 import { releases } from '$lib/releases';
-import { createBill, getUnpaidBillTotal, listBills } from '$lib/server/db/bills';
+import { createBill, getUnpaidBillTotal, listBills, markBillPaid } from '$lib/server/db/bills';
 import { getMonthlyPlan } from '$lib/server/db/plans';
 import {
 	processEventOnce,
 	claimEvent,
+	claimReminderDelivery,
 	deleteLatestTransaction,
 	getByCategory,
 	getPaymentMethodTotal,
@@ -49,6 +50,7 @@ import {
 	formatThaiMonthYear,
 	formatThaiShortDate,
 	bangkokMonthKey,
+	bangkokDayKey,
 	daysInBangkokMonth
 } from '$lib/utils/date';
 import { formatNumber, toNumber } from '$lib/utils/money';
@@ -170,6 +172,7 @@ async function handleEvent(event: LineEvent): Promise<void> {
 			await sendQuietly(() => replyText(event.replyToken as string, [
 				`🔔 แจ้งเตือน: ${user.notificationsEnabled ? 'เปิด' : 'ปิด'}`,
 				`สรุปบิล/เดือน: ${hour}:00 (${user.timezone})`,
+				`เตือนบิลก่อนกำหนด: ${user.billReminderDaysBefore} วัน`,
 				`งดรบกวน: ${quietStart}:00–${quietEnd}:00`,
 				'ถ้าไม่มีกิจกรรมจะแจ้งทุก 6 ชั่วโมง หยุดเองหลัง 3 วัน',
 				'เปลี่ยน: ตั้งค่าเตือน เปิด/ปิด · ตั้งค่าเตือน เวลา 20 · ตั้งค่าเตือน เขตเวลา Asia/Bangkok'
@@ -182,7 +185,8 @@ async function handleEvent(event: LineEvent): Promise<void> {
 				notificationHour: user.notificationHour,
 				timezone: user.timezone,
 				quietHoursStart: user.quietHoursStart,
-				quietHoursEnd: user.quietHoursEnd
+				quietHoursEnd: user.quietHoursEnd,
+				billReminderDaysBefore: user.billReminderDaysBefore
 			};
 			if (notificationCommand.type === 'enabled') preferences.notificationsEnabled = notificationCommand.enabled;
 			if (notificationCommand.type === 'hour') {
@@ -191,6 +195,12 @@ async function handleEvent(event: LineEvent): Promise<void> {
 					return 'เวลาเตือนต้องอยู่ในช่วง 00–23 และอยู่นอกช่วงงดรบกวน';
 				}
 				preferences.notificationHour = notificationCommand.hour;
+			}
+			if (notificationCommand.type === 'bill-days') {
+				if (!Number.isInteger(notificationCommand.days) || notificationCommand.days < 0 || notificationCommand.days > 31) {
+					return 'จำนวนวันเตือนล่วงหน้าต้องอยู่ระหว่าง 0 ถึง 31 วัน';
+				}
+				preferences.billReminderDaysBefore = notificationCommand.days;
 			}
 			if (notificationCommand.type === 'timezone') {
 				if (!isValidTimeZone(notificationCommand.timezone)) return 'ไม่รู้จักเขตเวลานี้ ลองใช้เช่น Asia/Bangkok';
@@ -202,6 +212,8 @@ async function handleEvent(event: LineEvent): Promise<void> {
 				? `${updated.notificationsEnabled ? 'เปิด' : 'ปิด'}การแจ้งเตือนแล้ว`
 				: notificationCommand.type === 'hour'
 					? `ตั้งเวลาส่งสรุปเป็น ${String(updated.notificationHour).padStart(2, '0')}:00 แล้ว`
+					: notificationCommand.type === 'bill-days'
+						? `ตั้งเตือนบิลล่วงหน้า ${updated.billReminderDaysBefore} วันแล้ว`
 					: `ตั้งเขตเวลาเป็น ${updated.timezone} แล้ว`;
 		});
 		if (message) await sendQuietly(() => replyText(event.replyToken as string, message));
@@ -330,6 +342,27 @@ function pendingExpired(pending: PendingSlip): boolean {
 async function handlePostback(event: LineEvent, user: User): Promise<void> {
 	if (!event.replyToken) return;
 	const data = event.postback?.data ?? '';
+	const billMatch = /^bill:(pay|snooze):(\d+):(\d{4}-\d{2}(?:-\d{2})?)$/.exec(data);
+	if (billMatch) {
+		const eventId = event.webhookEventId;
+		if (!eventId) throw new Error('LINE bill postback has no event identifier');
+		const billId = Number(billMatch[2]);
+		const period = billMatch[3];
+		const response = await processEventOnce(eventId, async (executor) => {
+			const bill = (await listBills(user.id, new Date(), true)).find((item) => item.id === billId);
+			if (!bill || bill.period !== period) return 'บิลนี้ไม่อยู่ในรอบปัจจุบันแล้ว เปิดหน้าเว็บเพื่อตรวจสอบอีกครั้ง';
+			if (bill.paid) return `บิล “${bill.name}” จ่ายแล้ว`;
+			if (billMatch[1] === 'snooze') {
+				const key = `bill-snooze:${bill.id}:${bill.period}:${bangkokDayKey(new Date())}`;
+				await claimReminderDelivery(key, user.id, executor);
+				return `เลื่อนเตือน “${bill.name}” ไปพรุ่งนี้แล้ว`;
+			}
+			const paid = await markBillPaid(bill.id, user.id, new Date(), executor);
+			return paid ? `✅ ทำเครื่องหมาย “${bill.name}” ว่าจ่ายแล้ว` : 'ไม่พบบิลนี้';
+		});
+		if (response) await sendQuietly(() => replyText(event.replyToken as string, response));
+		return;
+	}
 	const helpMatch = /^help:(record|slip|web|bills|commands|ai)$/.exec(data);
 	if (helpMatch) {
 		const eventId = event.webhookEventId;

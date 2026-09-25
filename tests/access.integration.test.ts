@@ -246,14 +246,17 @@ suite('membership against a real database', async () => {
 			notificationHour: 20,
 			timezone: 'Asia/Bangkok',
 			quietHoursStart: 23,
-			quietHoursEnd: 8
+			quietHoursEnd: 8,
+			billReminderDaysBefore: 5
 		});
 		const [unchanged] = await db.select().from(users).where(eq(users.id, userB));
 
 		expect(changed?.notificationsEnabled).toBe(false);
 		expect(changed?.notificationHour).toBe(20);
+		expect(changed?.billReminderDaysBefore).toBe(5);
 		expect(unchanged?.notificationsEnabled).toBe(true);
 		expect(unchanged?.notificationHour).toBe(18);
 		expect(unchanged?.quietHoursStart).toBe(22);
+		expect(unchanged?.billReminderDaysBefore).toBe(3);
 	});
 });

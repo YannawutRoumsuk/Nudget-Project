@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	processEventOnce: vi.fn(), insertTransaction: vi.fn(), insertTransactionIfUnique: vi.fn(), deleteLatestTransaction: vi.fn(),
+	processEventOnce: vi.fn(), insertTransaction: vi.fn(), insertTransactionIfUnique: vi.fn(), deleteLatestTransaction: vi.fn(), claimReminderDelivery: vi.fn(),
 	getTotals: vi.fn(), getByCategory: vi.fn(), getPaymentMethodTotal: vi.fn(), parseMessage: vi.fn(), replyText: vi.fn(),
 	getPendingSlip: vi.fn(), replacePendingSlip: vi.fn(), updatePendingSlip: vi.fn(), deletePendingSlip: vi.fn(),
 	updateOwnedPendingSlip: vi.fn(), consumePendingSlip: vi.fn(), deleteOwnedPendingSlip: vi.fn(),
 	claimPendingSlipForSave: vi.fn(), releasePendingSlipSave: vi.fn(),
 	getMessageContent: vi.fn(), pushText: vi.fn(), replyQuickReplies: vi.fn(), readSlip: vi.fn(), processPendingSlip: vi.fn(),
-	listBills: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), touchUserActivity: vi.fn(),
+	listBills: vi.fn(), markBillPaid: vi.fn(), getUnpaidBillTotal: vi.fn(), getMonthlyPlan: vi.fn(), touchUserActivity: vi.fn(),
 	admit: vi.fn(), listMembers: vi.fn(), getDisplayName: vi.fn(),
 	setPendingAction: vi.fn(), claimPendingAction: vi.fn(), createFeedback: vi.fn(), countFeedbackSince: vi.fn(),
 	claimEvent: vi.fn(), answerAiHelp: vi.fn(),
@@ -47,7 +47,7 @@ vi.mock('$lib/server/db/slips', () => ({
 	releasePendingSlipSave: mocks.releasePendingSlipSave,
 	deleteOwnedPendingSlip: mocks.deleteOwnedPendingSlip
 }));
-vi.mock('$lib/server/db/bills', () => ({ listBills: mocks.listBills, getUnpaidBillTotal: mocks.getUnpaidBillTotal }));
+vi.mock('$lib/server/db/bills', () => ({ listBills: mocks.listBills, markBillPaid: mocks.markBillPaid, getUnpaidBillTotal: mocks.getUnpaidBillTotal }));
 vi.mock('$lib/server/db/plans', () => ({ getMonthlyPlan: mocks.getMonthlyPlan }));
 vi.mock('$lib/server/ocr/slip', () => ({ readSlip: mocks.readSlip }));
 vi.mock('$lib/server/ocr/processor', () => ({ processPendingSlip: mocks.processPendingSlip }));
@@ -131,12 +131,43 @@ beforeEach(() => {
 	mocks.claimPendingSlipForSave.mockResolvedValue(pendingReady);
 	mocks.releasePendingSlipSave.mockResolvedValue(pendingReady);
 	mocks.listBills.mockResolvedValue([]);
+	mocks.markBillPaid.mockResolvedValue({ bill: { id: 8 }, transactionId: 40, existed: false });
 	mocks.getUnpaidBillTotal.mockResolvedValue(0);
 	mocks.getMonthlyPlan.mockResolvedValue(null);
 	mocks.getPaymentMethodTotal.mockResolvedValue(0);
 });
 
 describe('LINE processing', () => {
+	it('marks an owned bill paid exactly once from its current notification', async () => {
+		mocks.listBills.mockResolvedValue([{ id: 8, name: 'ค่าไฟ', period: '2026-09', paid: false }]);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'bill-pay-event',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'bill:pay:8:2026-09' }
+		}]);
+		expect(mocks.markBillPaid).toHaveBeenCalledWith(8, owner.id, expect.any(Date), executor);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('จ่ายแล้ว'));
+	});
+
+	it('rejects a stale bill action without touching a different cycle', async () => {
+		mocks.listBills.mockResolvedValue([{ id: 8, name: 'ค่าไฟ', period: '2026-10', paid: false }]);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'bill-stale-event',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'bill:pay:8:2026-09' }
+		}]);
+		expect(mocks.markBillPaid).not.toHaveBeenCalled();
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('รอบปัจจุบัน'));
+	});
+
+	it('records a per-bill snooze for the rest of the Bangkok day', async () => {
+		mocks.listBills.mockResolvedValue([{ id: 8, name: 'ค่าไฟ', period: '2026-09', paid: false }]);
+		await handleEvents([{
+			type: 'postback', replyToken: 'reply', webhookEventId: 'bill-snooze-event',
+			source: { type: 'user', userId: 'owner' }, postback: { data: 'bill:snooze:8:2026-09' }
+		}]);
+		expect(mocks.claimReminderDelivery).toHaveBeenCalledWith(expect.stringMatching(/^bill-snooze:8:2026-09:/), owner.id, executor);
+		expect(mocks.replyText).toHaveBeenCalledWith('reply', expect.stringContaining('พรุ่งนี้'));
+	});
+
 	it('opens an account the moment someone adds the bot', async () => {
 		await handleEvents([{ type: 'follow', replyToken: 'reply', source: { type: 'user', userId: 'new-user' } }]);
 		expect(mocks.admit).toHaveBeenCalledWith('new-user', expect.any(Function));

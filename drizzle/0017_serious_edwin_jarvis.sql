@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "bill_reminder_days_before" integer DEFAULT 3 NOT NULL;

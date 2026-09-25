@@ -55,7 +55,7 @@ export async function getUserById(id: number): Promise<User | null> {
 
 export async function updateNotificationPreferences(
 	id: number,
-	values: Pick<User, 'notificationsEnabled' | 'notificationHour' | 'timezone' | 'quietHoursStart' | 'quietHoursEnd'>,
+	values: Pick<User, 'notificationsEnabled' | 'notificationHour' | 'timezone' | 'quietHoursStart' | 'quietHoursEnd' | 'billReminderDaysBefore'>,
 	executor: DbExecutor = db
 ): Promise<User | null> {
 	const [row] = await executor.update(users).set({ ...values, updatedAt: new Date() })

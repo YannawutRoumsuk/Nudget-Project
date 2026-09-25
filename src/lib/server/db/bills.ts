@@ -80,8 +80,8 @@ export async function updateBill(
 	});
 }
 
-export async function markBillPaid(id: number, userId: number, reference = new Date()): Promise<{ bill: Bill; transactionId: number | null; existed: boolean } | null> {
-	return db.transaction(async (executor) => {
+export async function markBillPaid(id: number, userId: number, reference = new Date(), executor?: DbExecutor): Promise<{ bill: Bill; transactionId: number | null; existed: boolean } | null> {
+	const mark = async (executor: DbExecutor) => {
 		const [bill] = await executor.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);
 		if (!bill) return null;
 		const period = billPeriod(bill, reference);
@@ -107,7 +107,8 @@ export async function markBillPaid(id: number, userId: number, reference = new D
 		}).returning({ id: transactions.id }))[0] ?? null;
 		await executor.insert(billPayments).values({ userId: bill.userId, billId: bill.id, period, transactionId: transaction?.id ?? null, paidAt: reference });
 		return { bill, transactionId: transaction?.id ?? null, existed: false };
-	});
+	};
+	return executor ? mark(executor) : db.transaction(mark);
 }
 
 export async function unmarkBillPaid(id: number, userId: number, reference = new Date()): Promise<boolean> {
