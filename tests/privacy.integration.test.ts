@@ -57,7 +57,7 @@ suite('account deletion against PostgreSQL', async () => {
 		await db.insert(creditInstallments).values({ userId: targetId, creditCardId: card.id, purchaseTransactionId: tx.id, name: 'ผ่อนของ', categoryId: 'food', totalAmount: '600.00', installmentAmount: '100.00', totalInstallments: 6, firstDueDate: new Date('2026-10-01T00:00:00Z') });
 		await db.insert(monthlyPlans).values({ userId: targetId, month: '2026-09', expectedIncome: '30000.00' });
 		await db.insert(monthlyCategoryBudgets).values({ userId: targetId, month: '2026-09', categoryId: 'food', amount: '6000.00' });
-		await db.insert(pendingSlips).values({ userId: targetId, lineUserId: targetLineId, messageId: 'slip-message', status: 'queued' });
+		await db.insert(pendingSlips).values({ userId: targetId, lineUserId: targetLineId, messageId: 'slip-message', status: 'queued', categoryId: 'food' });
 		await db.insert(reminderDeliveries).values({ userId: targetId, key: 'reminder:one' });
 		await db.insert(feedback).values({ userId: targetId, lineUserId: targetLineId, displayName: 'เจ้าของบัญชี', message: 'ลบทิ้งด้วย' });
 		await db.insert(aiConversations).values({ userId: targetId, userMessage: 'ถาม', assistantMessage: 'ตอบ', provider: 'gemini', model: 'test' });
