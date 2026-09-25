@@ -22,7 +22,7 @@ suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
 	const { listMembers, setUserActive, getUserByLineId, touchUserActivity } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
-	const { billPayments, bills, categories, creditCards, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
+	const { billPayments, bills, categories, creditCards, monthlyCategoryBudgets, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
 
 	beforeEach(async () => {
 		await db.delete(transactions);
@@ -219,5 +219,20 @@ suite('membership against a real database', async () => {
 		const exported = await getPersonalExport(userA, selection);
 		expect(exported.transactions.map((row) => row.id)).toEqual([purchase.id]);
 		expect(await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, settlement.id))).toHaveLength(1);
+	});
+
+	it('stores category budgets only under the selected account and month', async () => {
+		const accountA = await admit('Ubudget-a');
+		const accountB = await admit('Ubudget-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		const { getMonthlyCategoryBudgets, replaceMonthlyCategoryBudgets } = await import('../src/lib/server/db/plans');
+
+		await replaceMonthlyCategoryBudgets(userA, '2026-09', [{ categoryId: 'food', amount: '6000.00' }, { categoryId: 'transport', amount: '0.00' }]);
+		await replaceMonthlyCategoryBudgets(userB, '2026-09', [{ categoryId: 'food', amount: '2500.00' }]);
+		expect(await getMonthlyCategoryBudgets(userA, '2026-10')).toEqual([]);
+		expect((await getMonthlyCategoryBudgets(userA, '2026-09')).map((row) => row.amount)).toEqual(['6000.00']);
+		expect((await getMonthlyCategoryBudgets(userB, '2026-09')).map((row) => row.amount)).toEqual(['2500.00']);
+		expect(await db.select().from(monthlyCategoryBudgets).where(eq(monthlyCategoryBudgets.userId, userA))).toHaveLength(1);
 	});
 });

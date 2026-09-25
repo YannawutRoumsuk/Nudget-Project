@@ -80,9 +80,25 @@ export const monthlyPlans = pgTable(
 		foodDailyBudget: numeric('food_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
 		commuteDailyBudget: numeric('commute_daily_budget', { precision: 10, scale: 2 }).notNull().default('0'),
 		commuteDays: integer('commute_days').notNull().default(0),
+		budgetAlertsEnabled: boolean('budget_alerts_enabled').notNull().default(true),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => [primaryKey({ columns: [t.userId, t.month] })]
+);
+
+export const monthlyCategoryBudgets = pgTable(
+	'monthly_category_budgets',
+	{
+		userId: ownerId(),
+		month: varchar('month', { length: 7 }).notNull(),
+		categoryId: varchar('category_id', { length: 32 }).notNull().references(() => categories.id, { onDelete: 'cascade' }),
+		amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.month, t.categoryId] }),
+		index('monthly_category_budgets_month_idx').on(t.userId, t.month)
+	]
 );
 
 /** Card metadata only; never store a full card number or security code. */
@@ -368,6 +384,7 @@ export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
 export type Bill = typeof bills.$inferSelect;
 export type CreditCard = typeof creditCards.$inferSelect;
+export type MonthlyCategoryBudget = typeof monthlyCategoryBudgets.$inferSelect;
 export type MonthlyPlan = typeof monthlyPlans.$inferSelect;
 export type PendingSlip = typeof pendingSlips.$inferSelect;
 export type Feedback = typeof feedback.$inferSelect;
