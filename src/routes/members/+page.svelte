@@ -29,7 +29,7 @@
 		<article class="card member" class:inactive={!member.active}>
 			<header>
 				<div>
-					<h2>{member.displayName || '(ไม่ทราบชื่อ LINE)'}</h2>
+					<h2><a href="/members/{member.id}">{member.displayName || '(ไม่ทราบชื่อ LINE)'}</a></h2>
 					{#if member.isOwner}<span class="tag owner">เจ้าของ</span>{/if}
 					{#if member.lineUserId === data.ownerLineUserId}<span class="tag you">คุณ</span>{/if}
 					{#if !member.active}<span class="tag off">ปิดสิทธิ์</span>{/if}

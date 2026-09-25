@@ -131,9 +131,10 @@ export async function getTransaction(id: number, userId: number): Promise<Transa
 export async function updateTransaction(
 	id: number,
 	userId: number,
-	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod' | 'creditCardId' | 'excludeFromBaseline' | 'anomalyDismissed'>>
+	values: Partial<Pick<NewTransaction, 'kind' | 'amount' | 'categoryId' | 'note' | 'occurredAt' | 'paymentMethod' | 'creditCardId' | 'excludeFromBaseline' | 'anomalyDismissed'>>,
+	transactionExecutor?: DbExecutor
 ): Promise<Transaction | null> {
-	return db.transaction(async (executor) => {
+	const update = async (executor: DbExecutor) => {
 		const [existing] = await executor.select().from(transactions)
 			.where(and(eq(transactions.id, id), eq(transactions.userId, userId))).limit(1);
 		if (!existing) return null;
@@ -176,7 +177,8 @@ export async function updateTransaction(
 			} else await syncDeferredBill(row, executor);
 		}
 		return row ?? null;
-	});
+	};
+	return transactionExecutor ? update(transactionExecutor) : db.transaction(update);
 }
 
 async function syncDeferredBill(transaction: Transaction, executor: DbExecutor): Promise<void> {

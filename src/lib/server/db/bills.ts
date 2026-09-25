@@ -58,9 +58,10 @@ export async function createBill(values: typeof bills.$inferInsert, executor: Db
 export async function updateBill(
 	id: number,
 	userId: number,
-	values: Partial<Omit<typeof bills.$inferInsert, 'id' | 'userId' | 'createdAt' | 'sourceTransactionId'>>
+	values: Partial<Omit<typeof bills.$inferInsert, 'id' | 'userId' | 'createdAt' | 'sourceTransactionId'>>,
+	transactionExecutor?: DbExecutor
 ): Promise<Bill | null> {
-	return db.transaction(async (executor) => {
+	const update = async (executor: DbExecutor) => {
 		const [row] = await executor
 			.update(bills)
 			.set({ ...values, updatedAt: new Date() })
@@ -74,10 +75,11 @@ export async function updateBill(
 			await executor.update(transactions).set({
 				amount: row.amount, categoryId: row.categoryId, note: row.name,
 				paymentMethod: row.paymentMethod
-			}).where(eq(transactions.id, payment.transactionId));
+			}).where(and(eq(transactions.id, payment.transactionId), eq(transactions.userId, userId)));
 		}
 		return row;
-	});
+	};
+	return transactionExecutor ? update(transactionExecutor) : db.transaction(update);
 }
 
 export async function markBillPaid(id: number, userId: number, reference = new Date(), executor?: DbExecutor): Promise<{ bill: Bill; transactionId: number | null; existed: boolean } | null> {
