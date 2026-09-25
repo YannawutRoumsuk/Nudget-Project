@@ -48,6 +48,21 @@ export async function touchUserActivity(id: number, at = new Date()): Promise<vo
 	await db.update(users).set({ lastActivityAt: at }).where(eq(users.id, id));
 }
 
+export async function getUserById(id: number): Promise<User | null> {
+	const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+	return row ?? null;
+}
+
+export async function updateNotificationPreferences(
+	id: number,
+	values: Pick<User, 'notificationsEnabled' | 'notificationHour' | 'timezone' | 'quietHoursStart' | 'quietHoursEnd'>,
+	executor: DbExecutor = db
+): Promise<User | null> {
+	const [row] = await executor.update(users).set({ ...values, updatedAt: new Date() })
+		.where(eq(users.id, id)).returning();
+	return row ?? null;
+}
+
 export async function setDisplayName(id: number, displayName: string): Promise<void> {
 	await db.update(users).set({ displayName, updatedAt: new Date() }).where(eq(users.id, id));
 }

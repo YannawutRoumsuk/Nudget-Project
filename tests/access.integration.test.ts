@@ -20,7 +20,7 @@ if (url) {
 
 suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
-	const { listMembers, setUserActive, getUserByLineId, touchUserActivity } = await import('../src/lib/server/db/users');
+	const { listMembers, setUserActive, getUserByLineId, touchUserActivity, updateNotificationPreferences } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
 	const { billPayments, bills, categories, creditCards, monthlyCategoryBudgets, monthlyPlans, transactions, users } = await import('../src/lib/server/db/schema');
 
@@ -234,5 +234,26 @@ suite('membership against a real database', async () => {
 		expect((await getMonthlyCategoryBudgets(userA, '2026-09')).map((row) => row.amount)).toEqual(['6000.00']);
 		expect((await getMonthlyCategoryBudgets(userB, '2026-09')).map((row) => row.amount)).toEqual(['2500.00']);
 		expect(await db.select().from(monthlyCategoryBudgets).where(eq(monthlyCategoryBudgets.userId, userA))).toHaveLength(1);
+	});
+
+	it('keeps notification preferences isolated per account', async () => {
+		const accountA = await admit('Unotify-a');
+		const accountB = await admit('Unotify-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		const changed = await updateNotificationPreferences(userA, {
+			notificationsEnabled: false,
+			notificationHour: 20,
+			timezone: 'Asia/Bangkok',
+			quietHoursStart: 23,
+			quietHoursEnd: 8
+		});
+		const [unchanged] = await db.select().from(users).where(eq(users.id, userB));
+
+		expect(changed?.notificationsEnabled).toBe(false);
+		expect(changed?.notificationHour).toBe(20);
+		expect(unchanged?.notificationsEnabled).toBe(true);
+		expect(unchanged?.notificationHour).toBe(18);
+		expect(unchanged?.quietHoursStart).toBe(22);
 	});
 });

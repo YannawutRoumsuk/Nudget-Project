@@ -14,11 +14,12 @@
 		{ href: '/plan', label: 'แผนเดือน' },
 		{ href: '/export', label: 'ส่งออก' },
 		{ href: '/feedback', label: 'ฟีดแบ็ก' },
+		{ href: '/notifications', label: 'การแจ้งเตือน' },
 		...(data?.isOwner ? [{ href: '/members', label: 'สมาชิก' }, { href: '/ai-conversations', label: 'บทสนทนา AI' }] : [])
 	]);
 	const selectedMonth = $derived(isMonthKey(page.url.searchParams.get('month')) ? page.url.searchParams.get('month') : null);
 	/** Pages with no notion of a month, so the picker's choice must not follow them. */
-	const MONTHLESS = ['/members', '/feedback', '/ai-conversations', '/cards'];
+	const MONTHLESS = ['/members', '/feedback', '/notifications', '/ai-conversations', '/cards'];
 	const navHref = (href: string) =>
 		selectedMonth && !MONTHLESS.includes(href) ? `${href}?month=${selectedMonth}` : href;
 

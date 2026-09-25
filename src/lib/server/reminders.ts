@@ -1,5 +1,6 @@
 import { billDueDate } from '$lib/bills';
-import { bangkokDayStart, bangkokMonthStart, addDays, addMonths, bangkokDayKey, bangkokMonthKey, fromBangkok, bangkokParts } from '$lib/utils/date';
+import { bangkokDayStart, addDays, addMonths, bangkokDayKey, bangkokMonthKey, fromBangkok, bangkokParts } from '$lib/utils/date';
+import { isInQuietHours, zonedClock } from '$lib/reminder-time';
 import { listBills } from './db/bills';
 import { claimReminderDelivery, releaseReminderDelivery } from './db/queries';
 import { listUsers } from './db/users';
@@ -41,8 +42,11 @@ export async function runReminderCheck(now = new Date()): Promise<void> {
 }
 
 async function remindUser(user: User, now: Date): Promise<void> {
-	await sendBudgetThresholdAlerts(user.id, user.lineUserId, now);
-	if (bangkokParts(now).hour === config.reminders.hour) {
+	if (!user.notificationsEnabled) return;
+	const local = zonedClock(now, user.timezone);
+	const quiet = isInQuietHours(now, user.timezone, user.quietHoursStart, user.quietHoursEnd);
+	if (!quiet && local.hour === user.notificationHour) {
+		await sendBudgetThresholdAlerts(user.id, user.lineUserId, now);
 		const bills = await listBills(user.id, now);
 		const reminderOffsets = [...new Set([config.reminders.daysBefore, 0])];
 		for (const bill of bills) {
@@ -62,16 +66,19 @@ async function remindUser(user: User, now: Date): Promise<void> {
 				throw error;
 			}
 		}
-		if (bangkokParts(now).day === 1) await sendPreviousMonthSummary(user, now);
+		if (local.day === 1) {
+			const previousMonth = bangkokMonthKey(addMonths(fromBangkok(local.year, local.month, 1), -1));
+			await sendPreviousMonthSummary(user, previousMonth, now);
+		}
 	}
-	await sendInactivityReminder(user, now);
+	if (!quiet) await sendInactivityReminder(user, now);
 }
 
 export function inactivityReminderKey(user: Pick<User, 'id' | 'lastActivityAt'>, now: Date): string | null {
 	const lastActivity = user.lastActivityAt;
 	if (!lastActivity || lastActivity.getTime() > now.getTime()) return null;
 	const inactivePeriods = Math.floor((now.getTime() - lastActivity.getTime()) / INACTIVITY_REMINDER_INTERVAL_MS);
-	if (inactivePeriods < 1) return null;
+	if (inactivePeriods < 1 || inactivePeriods >= 12) return null;
 	return `inactive:${user.id}:${lastActivity.getTime()}:${inactivePeriods}`;
 }
 
@@ -89,9 +96,7 @@ async function sendInactivityReminder(user: User, now: Date): Promise<void> {
 	}
 }
 
-async function sendPreviousMonthSummary(user: User, now: Date): Promise<void> {
-	const previousMonth = addMonths(bangkokMonthStart(now), -1);
-	const month = bangkokMonthKey(previousMonth);
+async function sendPreviousMonthSummary(user: User, month: string, now: Date): Promise<void> {
 	const key = `monthly-summary:${user.id}:${month}`;
 	if (!(await claimReminderDelivery(key, user.id))) return;
 	try {

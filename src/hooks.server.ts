@@ -6,6 +6,7 @@ import { config, describeLlmSetup } from '$lib/server/config';
 import { resolveMember } from '$lib/server/access';
 import { touchUserActivity } from '$lib/server/db/users';
 import { startReminderWorker } from '$lib/server/reminders';
+import { isUserActivityRequest } from '$lib/activity';
 
 const runtime = globalThis as typeof globalThis & {
 	__spendbotReminderWorkerStarted?: boolean;
@@ -32,7 +33,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// to is what every page filters on, so resolve it here once and never let a
 	// route derive an owner from user-supplied input.
 	const user = lineUserId ? await resolveMember(lineUserId) : null;
-	if (user && shouldCountWebActivity(event.request.method, event.url.pathname)) {
+	if (user && isUserActivityRequest(event.request.method, event.url.pathname)) {
 		await touchUserActivity(user.id);
 	}
 	event.locals.lineUserId = user ? user.lineUserId : null;
@@ -48,6 +49,3 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return resolve(event);
 };
 
-function shouldCountWebActivity(method: string, pathname: string): boolean {
-	return method !== 'HEAD' && !pathname.startsWith('/_app/') && pathname !== '/favicon.ico';
-}
