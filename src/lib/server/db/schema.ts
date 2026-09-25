@@ -53,6 +53,11 @@ export const users = pgTable('users', {
 	active: boolean('active').notNull().default(true),
 	/** Last authenticated web or LINE interaction, independent of backdated ledger entries. */
 	lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
+	notificationsEnabled: boolean('notifications_enabled').notNull().default(true),
+	notificationHour: integer('notification_hour').notNull().default(18),
+	timezone: text('timezone').notNull().default('Asia/Bangkok'),
+	quietHoursStart: integer('quiet_hours_start').notNull().default(22),
+	quietHoursEnd: integer('quiet_hours_end').notNull().default(7),
 	/**
 	 * What the bot is waiting for this person to type next, e.g. the body of a
 	 * feedback message. It lives here rather than in memory because a webhook is

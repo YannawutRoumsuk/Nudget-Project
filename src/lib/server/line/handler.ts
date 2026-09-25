@@ -5,7 +5,7 @@ import { config, describeLlmSetup } from '$lib/server/config';
 import { answerAiHelp } from '$lib/server/help/generate';
 import { textTransactionFingerprint } from '$lib/server/dedupe';
 import { admit, isOwner } from '$lib/server/access';
-import { claimPendingAction, listMembers, pendingActionIsLive, setPendingAction, touchUserActivity } from '$lib/server/db/users';
+import { claimPendingAction, listMembers, pendingActionIsLive, setPendingAction, touchUserActivity, updateNotificationPreferences } from '$lib/server/db/users';
 import {
 	FEEDBACK_DAILY_LIMIT,
 	FEEDBACK_MAX_LENGTH,
@@ -54,6 +54,8 @@ import {
 import { formatNumber, toNumber } from '$lib/utils/money';
 import { getDisplayName, pushText, replyQuickReplies, replyText } from './client';
 import { buildMonthlyLineSummary } from '../monthly-summary';
+import { isQuietHour } from '$lib/reminder-time';
+import { isValidTimeZone, parseNotificationCommand } from '$lib/notification-settings';
 import {
 	confirmInstallment,
 	confirmNoteUpdated,
@@ -159,6 +161,52 @@ async function handleEvent(event: LineEvent): Promise<void> {
 	// Use the original send time so retries across midnight keep the intended day.
 	const sentAt = event.timestamp === undefined ? new Date() : new Date(event.timestamp);
 	const pending = await getPendingSlip(user.id);
+	const notificationCommand = !pending ? parseNotificationCommand(text) : null;
+	if (notificationCommand) {
+		if (notificationCommand.type === 'show') {
+			const hour = String(user.notificationHour).padStart(2, '0');
+			const quietStart = String(user.quietHoursStart).padStart(2, '0');
+			const quietEnd = String(user.quietHoursEnd).padStart(2, '0');
+			await sendQuietly(() => replyText(event.replyToken as string, [
+				`🔔 แจ้งเตือน: ${user.notificationsEnabled ? 'เปิด' : 'ปิด'}`,
+				`สรุปบิล/เดือน: ${hour}:00 (${user.timezone})`,
+				`งดรบกวน: ${quietStart}:00–${quietEnd}:00`,
+				'ถ้าไม่มีกิจกรรมจะแจ้งทุก 6 ชั่วโมง หยุดเองหลัง 3 วัน',
+				'เปลี่ยน: ตั้งค่าเตือน เปิด/ปิด · ตั้งค่าเตือน เวลา 20 · ตั้งค่าเตือน เขตเวลา Asia/Bangkok'
+			].join('\n')));
+			return;
+		}
+		const message = await processEventOnce(eventId, async (executor) => {
+			const preferences = {
+				notificationsEnabled: user.notificationsEnabled,
+				notificationHour: user.notificationHour,
+				timezone: user.timezone,
+				quietHoursStart: user.quietHoursStart,
+				quietHoursEnd: user.quietHoursEnd
+			};
+			if (notificationCommand.type === 'enabled') preferences.notificationsEnabled = notificationCommand.enabled;
+			if (notificationCommand.type === 'hour') {
+				if (!Number.isInteger(notificationCommand.hour) || notificationCommand.hour < 0 || notificationCommand.hour > 23 ||
+					isQuietHour(notificationCommand.hour, preferences.quietHoursStart, preferences.quietHoursEnd)) {
+					return 'เวลาเตือนต้องอยู่ในช่วง 00–23 และอยู่นอกช่วงงดรบกวน';
+				}
+				preferences.notificationHour = notificationCommand.hour;
+			}
+			if (notificationCommand.type === 'timezone') {
+				if (!isValidTimeZone(notificationCommand.timezone)) return 'ไม่รู้จักเขตเวลานี้ ลองใช้เช่น Asia/Bangkok';
+				preferences.timezone = notificationCommand.timezone;
+			}
+			const updated = await updateNotificationPreferences(user.id, preferences, executor);
+			if (!updated) return 'บันทึกการตั้งค่าไม่สำเร็จ ลองใหม่อีกครั้ง';
+			return notificationCommand.type === 'enabled'
+				? `${updated.notificationsEnabled ? 'เปิด' : 'ปิด'}การแจ้งเตือนแล้ว`
+				: notificationCommand.type === 'hour'
+					? `ตั้งเวลาส่งสรุปเป็น ${String(updated.notificationHour).padStart(2, '0')}:00 แล้ว`
+					: `ตั้งเขตเวลาเป็น ${updated.timezone} แล้ว`;
+		});
+		if (message) await sendQuietly(() => replyText(event.replyToken as string, message));
+		return;
+	}
 	// Answered before anything is parsed: someone in feedback mode who writes
 	// “แอปช้ามาก จ่ายไป 500” means a complaint, not an expense. A slip still in
 	// play wins, though — that reply is an answer to a question the bot asked.
