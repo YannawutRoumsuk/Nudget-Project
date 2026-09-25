@@ -56,6 +56,7 @@
 </section>
 
 <p class="privacy">ไฟล์สร้างเมื่อกดดาวน์โหลดและไม่ถูกเก็บเป็นไฟล์สาธารณะ วันเวลาใช้ Asia/Bangkok และ CSV มี UTF-8 BOM สำหรับภาษาไทย</p>
+<p class="privacy"><a href="/privacy">ไปที่ข้อมูลส่วนตัวและการลบบัญชี</a></p>
 
 <style>
 	.head{margin-bottom:var(--stack)}h1{font-size:var(--text-xl)}.head p:last-child,.download-card p,.privacy{color:var(--ink-muted)}
