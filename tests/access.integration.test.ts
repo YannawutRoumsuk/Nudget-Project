@@ -182,6 +182,27 @@ suite('membership against a real database', async () => {
 		expect(rules).toHaveLength(2);
 	});
 
+	it('imports CSV rows atomically and scopes duplicate detection to the account', async () => {
+		const accountA = await admit('Ucsv-a');
+		const accountB = await admit('Ucsv-b');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		await db.insert(categories).values({ id: 'transport', nameTh: 'เดินทาง', nameEn: 'Transport', kind: 'expense', icon: '🚕', color: '#00f' }).onConflictDoNothing();
+		const occurredAt = new Date('2026-09-25T05:00:00Z');
+		const entries = [
+			{ rowNumber: 2, kind: 'expense' as const, amount: '120.00', categoryId: 'food', note: 'ข้าว', occurredAt, day: '2026-09-25', paymentMethod: 'cash' as const },
+			{ rowNumber: 3, kind: 'expense' as const, amount: '75.00', categoryId: 'transport', note: 'รถ', occurredAt, day: '2026-09-25', paymentMethod: 'bank' as const }
+		];
+		const { previewImportDuplicates, saveImportedTransactions } = await import('../src/lib/server/db/import');
+		expect((await saveImportedTransactions(userA, entries, false)).inserted).toBe(2);
+		expect((await previewImportDuplicates(userA, entries)).size).toBe(2);
+		expect((await previewImportDuplicates(userB, entries)).size).toBe(0);
+		expect(await saveImportedTransactions(userA, entries, false)).toMatchObject({ inserted: 0, skippedDuplicates: 2 });
+		expect(await saveImportedTransactions(userA, [entries[0]], true)).toMatchObject({ inserted: 1, skippedDuplicates: 0 });
+		await expect(saveImportedTransactions(userA, [{ ...entries[0], note: 'เค้ก' }, { ...entries[1], categoryId: 'missing' }], false)).rejects.toBeTruthy();
+		expect(await db.select().from(transactions).where(eq(transactions.userId, userA))).toHaveLength(3);
+	});
+
 	it('exports only the signed-in account across every owned table', async () => {
 		const accountA = await admit('Uaccount-a', async () => 'คนเอ');
 		const accountB = await admit('Uaccount-b', async () => 'คนบี');
