@@ -14,6 +14,8 @@ import { pushFlex } from './line/client';
 import { recordSystemEvent } from './operations';
 
 export const INACTIVITY_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const INACTIVITY_REMINDER_START_HOUR = 6;
+export const INACTIVITY_REMINDER_END_HOUR = 21;
 
 export function reminderKey(billId: number, dueDate: Date, daysBefore = config.reminders.daysBefore): string {
 	return `${billId}:${bangkokDayKey(dueDate)}:${daysBefore}`;
@@ -80,7 +82,7 @@ async function remindUser(user: User, now: Date): Promise<void> {
 			await sendPreviousMonthSummary(user, previousMonth, now);
 		}
 	}
-	if (!quiet) await sendInactivityReminder(user, now);
+	if (!quiet && isWithinInactivityReminderWindow(now, user.timezone)) await sendInactivityReminder(user, now);
 }
 
 async function sendBillReminderStage(
@@ -105,19 +107,25 @@ async function sendBillReminderStage(
 	}
 }
 
-export function inactivityReminderKey(user: Pick<User, 'id' | 'lastActivityAt'>, now: Date): string | null {
+export function inactivityReminderKey(user: Pick<User, 'id' | 'lastActivityAt' | 'timezone'>, now: Date): string | null {
 	const lastActivity = user.lastActivityAt;
 	if (!lastActivity || lastActivity.getTime() > now.getTime()) return null;
 	const inactivePeriods = Math.floor((now.getTime() - lastActivity.getTime()) / INACTIVITY_REMINDER_INTERVAL_MS);
 	if (inactivePeriods < 1 || inactivePeriods >= 12) return null;
-	return `inactive:${user.id}:${lastActivity.getTime()}:${inactivePeriods}`;
+	const local = zonedClock(now, user.timezone);
+	const day = `${local.year}-${String(local.month).padStart(2, '0')}-${String(local.day).padStart(2, '0')}`;
+	return `inactive:${user.id}:${day}`;
+}
+
+export function isWithinInactivityReminderWindow(now: Date, timeZone: string): boolean {
+	const hour = zonedClock(now, timeZone).hour;
+	return hour >= INACTIVITY_REMINDER_START_HOUR && hour < INACTIVITY_REMINDER_END_HOUR;
 }
 
 async function sendInactivityReminder(user: User, now: Date): Promise<void> {
 	const key = inactivityReminderKey(user, now);
 	if (!key || !(await claimReminderDelivery(key, user.id))) return;
-	const inactivePeriods = Number(key.slice(key.lastIndexOf(':') + 1));
-	const hours = inactivePeriods * 6;
+	const hours = Math.floor((now.getTime() - user.lastActivityAt.getTime()) / (60 * 60 * 1000));
 	try {
 		const sent = await pushText(user.lineUserId, `👋 ไม่ได้เปิด Nudget มา ${hours} ชั่วโมงแล้ว\nมีรายการหรือบิลที่อยากบันทึกไหม? ส่งข้อความเข้าแชทนี้ได้เลย`);
 		if (!sent) await releaseReminderDelivery(key);
