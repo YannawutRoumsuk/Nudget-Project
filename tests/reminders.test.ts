@@ -20,7 +20,7 @@ vi.mock('../src/lib/server/monthly-summary', () => ({ buildMonthlyLineSummary: m
 vi.mock('../src/lib/server/budget-alerts', () => ({ sendBudgetThresholdAlerts: mocks.sendBudgetThresholdAlerts }));
 vi.mock('../src/lib/server/operations', () => ({ recordSystemEvent: vi.fn() }));
 
-import { inactivityReminderKey, runReminderCheck, shouldRemind } from '../src/lib/server/reminders';
+import { inactivityReminderKey, isWithinInactivityReminderWindow, runReminderCheck, shouldRemind } from '../src/lib/server/reminders';
 import { fromBangkok } from '../src/lib/utils/date';
 
 const now = fromBangkok(2026, 9, 7, 9);
@@ -132,10 +132,32 @@ describe('bill reminders', () => {
 		log.mockRestore();
 	});
 
-	it('sends inactivity reminders every six hours but stops at 72 hours', () => {
-		const lastActivityAt = fromBangkok(2026, 9, 7, 3);
-		expect(inactivityReminderKey({ id: 5, lastActivityAt }, fromBangkok(2026, 9, 7, 9))).toBe(`inactive:5:${lastActivityAt.getTime()}:1`);
-		expect(inactivityReminderKey({ id: 5, lastActivityAt }, fromBangkok(2026, 9, 10, 3))).toBeNull();
+	it('allows only one inactivity delivery key per local day and still stops at 72 hours', () => {
+		const lastActivityAt = fromBangkok(2026, 9, 6, 8);
+		const account = { id: 5, lastActivityAt, timezone: 'Asia/Bangkok' };
+		expect(inactivityReminderKey(account, fromBangkok(2026, 9, 7, 9))).toBe('inactive:5:2026-09-07');
+		expect(inactivityReminderKey(account, fromBangkok(2026, 9, 7, 20))).toBe('inactive:5:2026-09-07');
+		expect(inactivityReminderKey(account, fromBangkok(2026, 9, 8, 9))).toBe('inactive:5:2026-09-08');
+		expect(inactivityReminderKey({ ...account, lastActivityAt: fromBangkok(2026, 9, 7, 4) }, fromBangkok(2026, 9, 7, 9))).toBeNull();
+		expect(inactivityReminderKey(account, fromBangkok(2026, 9, 10, 8))).toBeNull();
+	});
+
+	it('keeps inactivity reminders inside 06:00–21:00 in each user timezone', () => {
+		const time = (hour: number, minute = 0) => new Date(Date.UTC(2026, 8, 7, hour - 7, minute));
+		expect(isWithinInactivityReminderWindow(time(5, 59), 'Asia/Bangkok')).toBe(false);
+		expect(isWithinInactivityReminderWindow(time(6), 'Asia/Bangkok')).toBe(true);
+		expect(isWithinInactivityReminderWindow(time(20, 59), 'Asia/Bangkok')).toBe(true);
+		expect(isWithinInactivityReminderWindow(time(21), 'Asia/Bangkok')).toBe(false);
+	});
+
+	it('does not attempt an inactivity reminder before six or from 9 pm onward', async () => {
+		const inactive = user(5, 'quiet', fromBangkok(2026, 9, 6, 8));
+		mocks.listUsers.mockResolvedValue([inactive]);
+		mocks.listBills.mockResolvedValue([]);
+		await runReminderCheck(fromBangkok(2026, 9, 7, 5));
+		await runReminderCheck(fromBangkok(2026, 9, 7, 21));
+		expect(mocks.pushText).not.toHaveBeenCalled();
+		expect(mocks.claimReminderDelivery).not.toHaveBeenCalledWith(expect.stringMatching(/^inactive:/), 5);
 	});
 
 	it('does not send reminders to a disabled account or during quiet hours', async () => {
