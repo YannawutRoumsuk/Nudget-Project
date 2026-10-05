@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { EXPENSE_CATEGORIES } from '$lib/categories';
-import { billCopyDefaults, validateBillSchedule } from '$lib/bills';
+import { billCopyDefaults, groupBillsByDueMonth, validateBillSchedule } from '$lib/bills';
+import { resolveMonthSelection } from '$lib/month';
 import { requireUserId } from '$lib/server/auth';
 import { createBill, deleteBill, getBill, listBills, markBillPaid, unmarkBillPaid, updateBill } from '$lib/server/db/bills';
 import { bangkokParts, fromBangkok } from '$lib/utils/date';
@@ -8,6 +9,10 @@ import type { BillRecurrence, PaymentMethod } from '$lib/server/db/schema';
 import type { Actions, PageServerLoad } from './$types';
 
 const METHODS: PaymentMethod[] = ['bank', 'cash', 'credit_card', 'shopee_paylater', 'wallet'];
+
+function billsPath(month: FormDataEntryValue | null): string {
+	return `/bills?month=${resolveMonthSelection(typeof month === 'string' ? month : null).key}`;
+}
 
 /**
  * `Date.UTC` rolls an impossible day forward instead of refusing it, so
@@ -71,14 +76,17 @@ function parseForm(form: FormData) {
 
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = requireUserId(locals);
+	const month = resolveMonthSelection(url.searchParams.get('month'));
 	const copyRaw = url.searchParams.get('copy');
 	const copyId = Number(copyRaw);
 	const [ownedBills, source] = await Promise.all([
-		listBills(userId, new Date(), true),
+		listBills(userId, month.from, true),
 		copyRaw !== null && Number.isInteger(copyId) && copyId > 0 ? getBill(copyId, userId) : null
 	]);
 	return {
+		month,
 		bills: ownedBills,
+		billGroups: groupBillsByDueMonth(ownedBills, month.from),
 		copy: source ? billCopyDefaults(source) : null,
 		copyMissing: copyRaw !== null && !source
 	};
@@ -87,10 +95,11 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 export const actions: Actions = {
 	create: async ({ request, locals }) => {
 		const userId = requireUserId(locals);
-		const parsed = parseForm(await request.formData());
+		const form = await request.formData();
+		const parsed = parseForm(form);
 		if (parsed.error) return fail(400, { message: parsed.error });
 		await createBill({ ...parsed.values, active: true, userId });
-		redirect(303, '/bills');
+		redirect(303, billsPath(form.get('month')));
 	},
 	update: async ({ request, locals }) => {
 		const userId = requireUserId(locals);
@@ -100,24 +109,29 @@ export const actions: Actions = {
 		if (!Number.isInteger(id)) return fail(400, { message: 'ไม่พบบิลนี้' });
 		if (parsed.error) return fail(400, { message: parsed.error });
 		if (!await updateBill(id, userId, parsed.values)) return fail(404, { message: 'ไม่พบบิลนี้' });
-		redirect(303, '/bills');
+		redirect(303, billsPath(form.get('month')));
 	},
 	delete: async ({ request, locals }) => {
 		const userId = requireUserId(locals);
-		const id = Number((await request.formData()).get('id'));
+		const form = await request.formData();
+		const id = Number(form.get('id'));
 		if (!Number.isInteger(id) || id <= 0 || !await deleteBill(id, userId)) return fail(404, { message: 'ไม่พบบิลนี้' });
-		redirect(303, '/bills');
+		redirect(303, billsPath(form.get('month')));
 	},
 	paid: async ({ request, locals }) => {
 		const userId = requireUserId(locals);
-		const id = Number((await request.formData()).get('id'));
-		if (!Number.isInteger(id) || !await markBillPaid(id, userId)) return fail(404, { message: 'ไม่พบบิลนี้' });
-		redirect(303, '/bills');
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		const month = resolveMonthSelection(typeof form.get('month') === 'string' ? String(form.get('month')) : null);
+		if (!Number.isInteger(id) || !await markBillPaid(id, userId, new Date(), undefined, month.from)) return fail(404, { message: 'ไม่พบบิลนี้' });
+		redirect(303, billsPath(form.get('month')));
 	},
 	unpaid: async ({ request, locals }) => {
 		const userId = requireUserId(locals);
-		const id = Number((await request.formData()).get('id'));
-		if (!Number.isInteger(id) || !await unmarkBillPaid(id, userId)) return fail(404, { message: 'ไม่พบการจ่ายบิลนี้' });
-		redirect(303, '/bills');
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		const month = resolveMonthSelection(typeof form.get('month') === 'string' ? String(form.get('month')) : null);
+		if (!Number.isInteger(id) || !await unmarkBillPaid(id, userId, new Date(), month.from)) return fail(404, { message: 'ไม่พบการจ่ายบิลนี้' });
+		redirect(303, billsPath(form.get('month')));
 	}
 };

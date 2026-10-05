@@ -1,5 +1,5 @@
 import type { Bill, BillRecurrence } from '$lib/server/db/schema';
-import { bangkokMonthKey, bangkokParts, fromBangkok } from '$lib/utils/date';
+import { bangkokMonthKey, bangkokParts, formatThaiMonthYear, fromBangkok } from '$lib/utils/date';
 
 export function billDueDate(bill: Pick<Bill, 'recurrence' | 'dueDay' | 'dueDate'>, reference: Date): Date | null {
 	if (bill.recurrence === 'once') return bill.dueDate;
@@ -18,6 +18,41 @@ export function billPeriod(
 		return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 	}
 	return bangkokMonthKey(reference);
+}
+
+export interface BillMonthGroup<T> {
+	key: string;
+	label: string;
+	unpaid: T[];
+	paid: T[];
+}
+
+/** Groups bills by their due month, with paid and unpaid items kept separate. */
+export function groupBillsByDueMonth<T extends Pick<Bill, 'id' | 'recurrence' | 'dueDay' | 'dueDate'> & { paid: boolean }>(
+	bills: T[], reference: Date
+): BillMonthGroup<T>[] {
+	const groups = new Map<string, BillMonthGroup<T>>();
+	for (const bill of bills) {
+		const due = billDueDate(bill, reference);
+		const key = due ? bangkokMonthKey(due) : 'undated';
+		let group = groups.get(key);
+		if (!group) {
+			group = { key, label: due ? formatThaiMonthYear(due) : 'ไม่ระบุเดือน', unpaid: [], paid: [] };
+			groups.set(key, group);
+		}
+		group[bill.paid ? 'paid' : 'unpaid'].push(bill);
+	}
+
+	return [...groups.values()]
+		.sort((a, b) => a.key.localeCompare(b.key))
+		.map((group) => {
+			const byDueDate = (a: T, b: T) => {
+				const first = billDueDate(a, reference)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+				const second = billDueDate(b, reference)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+				return first - second || a.id - b.id;
+			};
+			return { ...group, unpaid: group.unpaid.sort(byDueDate), paid: group.paid.sort(byDueDate) };
+		});
 }
 
 export function validateBillSchedule(recurrence: BillRecurrence, dueDay: number | null, dueDate: Date | null): boolean {

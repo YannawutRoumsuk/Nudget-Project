@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { billCopyDefaults, billDueDate, billPeriod, validateBillSchedule } from '../src/lib/bills';
+import { billCopyDefaults, billDueDate, billPeriod, groupBillsByDueMonth, validateBillSchedule } from '../src/lib/bills';
 import { bangkokDayKey, bangkokParts, fromBangkok } from '../src/lib/utils/date';
 
 const reference = new Date('2026-09-05T03:00:00Z');
@@ -29,6 +29,20 @@ describe('bill schedule', () => {
 		});
 		expect(billCopyDefaults(source)).not.toHaveProperty('id');
 		expect(billCopyDefaults(source)).not.toHaveProperty('active');
+	});
+
+	it('groups bills by due month and separates paid from unpaid items', () => {
+		const reference = new Date('2026-09-01T00:00:00Z');
+		const bills = [
+			{ id: 1, recurrence: 'monthly' as const, dueDay: 15, dueDate: null, paid: false },
+			{ id: 2, recurrence: 'monthly' as const, dueDay: 5, dueDate: null, paid: true },
+			{ id: 3, recurrence: 'once' as const, dueDay: null, dueDate: new Date('2026-10-01T00:00:00Z'), paid: false }
+		];
+
+		expect(groupBillsByDueMonth(bills, reference)).toMatchObject([
+			{ key: '2026-09', label: 'กันยายน 2569', unpaid: [{ id: 1 }], paid: [{ id: 2 }] },
+			{ key: '2026-10', label: 'ตุลาคม 2569', unpaid: [{ id: 3 }], paid: [] }
+		]);
 	});
 });
 

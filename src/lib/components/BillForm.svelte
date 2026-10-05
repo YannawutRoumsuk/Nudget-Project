@@ -25,11 +25,13 @@
 	let {
 		action,
 		submitLabel,
-		bill = null
+		bill = null,
+		month
 	}: {
 		action: string;
 		submitLabel: string;
 		bill?: BillValues | null;
+		month?: string;
 	} = $props();
 
 	const METHODS = [
@@ -56,6 +58,7 @@
 </script>
 
 <form method="POST" {action} class="bill-form">
+	{#if month}<input type="hidden" name="month" value={month} />{/if}
 	{#if bill?.id !== undefined}
 		<input type="hidden" name="id" value={bill.id} />
 	{/if}
