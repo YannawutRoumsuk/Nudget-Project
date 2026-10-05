@@ -22,6 +22,10 @@
 		params.set('copy', String(id));
 		return `/bills?${params}#new-bill`;
 	}
+
+	function confirmDelete(event: SubmitEvent, name: string): void {
+		if (!window.confirm(`ลบบิล “${name}” ใช่ไหม? ประวัติรายจ่ายที่บันทึกไว้จะยังอยู่`)) event.preventDefault();
+	}
 </script>
 
 <svelte:head><title>บิล · Nudget</title></svelte:head>
@@ -71,6 +75,10 @@
 					</button>
 				</form>
 				<a class="copy" href={copyHref(bill.id)}>คัดลอก</a>
+				<form method="POST" action="?/delete" class="delete-form" onsubmit={(event) => confirmDelete(event, bill.name)}>
+					<input type="hidden" name="id" value={bill.id} />
+					<button type="submit">ลบบิล</button>
+				</form>
 			</div>
 			<details>
 				<summary>แก้ไข</summary>
@@ -160,6 +168,21 @@
 	.copy:hover {
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+	.delete-form button {
+		padding: 0.6rem 0.85rem;
+		font: inherit;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		border: 1px solid var(--out);
+		border-radius: var(--radius);
+		background: transparent;
+		color: var(--out);
+		cursor: pointer;
+	}
+	.delete-form button:hover {
+		background: var(--out);
+		color: var(--paper-raised);
 	}
 	.paid-form button {
 		width: 100%;

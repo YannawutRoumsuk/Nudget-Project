@@ -91,6 +91,14 @@ export async function updateBill(
 	return transactionExecutor ? update(transactionExecutor) : db.transaction(update);
 }
 
+/** Removes a saved bill for its owner while retaining any expense transactions. */
+export async function deleteBill(id: number, userId: number): Promise<boolean> {
+	const deleted = await db.delete(bills)
+		.where(and(eq(bills.id, id), eq(bills.userId, userId)))
+		.returning({ id: bills.id });
+	return deleted.length > 0;
+}
+
 export async function markBillPaid(id: number, userId: number, reference = new Date(), executor?: DbExecutor): Promise<{ bill: Bill; transactionId: number | null; existed: boolean } | null> {
 	const mark = async (executor: DbExecutor) => {
 		const [bill] = await executor.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);

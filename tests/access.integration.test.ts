@@ -20,6 +20,7 @@ if (url) {
 
 suite('membership against a real database', async () => {
 	const { admit, isOwner, resolveMember } = await import('../src/lib/server/access');
+	const { actions: billActions } = await import('../src/routes/bills/+page.server');
 	const { listMembers, setUserActive, getUserByLineId, touchUserActivity, updateNotificationPreferences } = await import('../src/lib/server/db/users');
 	const { closeDatabase, db } = await import('../src/lib/server/db');
 	const { billPayments, bills, categories, creditCards, monthlyCategoryBudgets, monthlyPlans, transactions, userCategoryRules, users, whatIfScenarios } = await import('../src/lib/server/db/schema');
@@ -56,6 +57,37 @@ suite('membership against a real database', async () => {
 
 		await setUserActive(id, true);
 		expect((await resolveMember('Uguest'))?.id).toBe(id);
+	});
+
+	it('lets the owner delete a bill without deleting its recorded expense', async () => {
+		const accountA = await admit('Udelete-bill-owner');
+		const accountB = await admit('Udelete-bill-other');
+		const userA = accountA.status === 'joined' ? accountA.user.id : 0;
+		const userB = accountB.status === 'joined' ? accountB.user.id : 0;
+		const [bill] = await db.insert(bills).values({
+			userId: userA, name: 'ค่าไฟ', amount: '950.00', categoryId: 'food', recurrence: 'monthly', dueDay: 15
+		}).returning();
+		const [transaction] = await db.insert(transactions).values({
+			userId: userA, kind: 'expense', amount: '950.00', categoryId: 'food', note: 'ค่าไฟ',
+			occurredAt: new Date('2026-09-15T02:00:00Z'), paymentMethod: 'bank', billId: bill.id,
+			source: 'web', parsedBy: 'manual'
+		}).returning();
+		await db.insert(billPayments).values({
+			userId: userA, billId: bill.id, transactionId: transaction.id, period: '2026-09'
+		});
+		const postDelete = (userId: number) => billActions.delete!({
+			locals: { userId },
+			request: new Request('http://localhost/bills?/delete', {
+				method: 'POST', body: new URLSearchParams({ id: String(bill.id) })
+			})
+		} as never);
+
+		expect(await postDelete(userB)).toMatchObject({ status: 404 });
+		await expect(postDelete(userA)).rejects.toMatchObject({ status: 303, location: '/bills' });
+		expect(await db.select().from(bills).where(eq(bills.id, bill.id))).toHaveLength(0);
+		expect(await db.select().from(billPayments).where(eq(billPayments.billId, bill.id))).toHaveLength(0);
+		expect(await db.select({ id: transactions.id, billId: transactions.billId }).from(transactions).where(eq(transactions.id, transaction.id)))
+			.toEqual([{ id: transaction.id, billId: null }]);
 	});
 
 	it('lets an owner in before any row exists and cannot be locked out by the flag', async () => {
