@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { EXPENSE_CATEGORIES } from '$lib/categories';
 import { billCopyDefaults, validateBillSchedule } from '$lib/bills';
 import { requireUserId } from '$lib/server/auth';
-import { createBill, getBill, listBills, markBillPaid, unmarkBillPaid, updateBill } from '$lib/server/db/bills';
+import { createBill, deleteBill, getBill, listBills, markBillPaid, unmarkBillPaid, updateBill } from '$lib/server/db/bills';
 import { bangkokParts, fromBangkok } from '$lib/utils/date';
 import type { BillRecurrence, PaymentMethod } from '$lib/server/db/schema';
 import type { Actions, PageServerLoad } from './$types';
@@ -100,6 +100,12 @@ export const actions: Actions = {
 		if (!Number.isInteger(id)) return fail(400, { message: 'ไม่พบบิลนี้' });
 		if (parsed.error) return fail(400, { message: parsed.error });
 		if (!await updateBill(id, userId, parsed.values)) return fail(404, { message: 'ไม่พบบิลนี้' });
+		redirect(303, '/bills');
+	},
+	delete: async ({ request, locals }) => {
+		const userId = requireUserId(locals);
+		const id = Number((await request.formData()).get('id'));
+		if (!Number.isInteger(id) || id <= 0 || !await deleteBill(id, userId)) return fail(404, { message: 'ไม่พบบิลนี้' });
 		redirect(303, '/bills');
 	},
 	paid: async ({ request, locals }) => {
