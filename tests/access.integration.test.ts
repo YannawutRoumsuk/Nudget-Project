@@ -78,12 +78,12 @@ suite('membership against a real database', async () => {
 		const postDelete = (userId: number) => billActions.delete!({
 			locals: { userId },
 			request: new Request('http://localhost/bills?/delete', {
-				method: 'POST', body: new URLSearchParams({ id: String(bill.id) })
+				method: 'POST', body: new URLSearchParams({ id: String(bill.id), month: '2026-09' })
 			})
 		} as never);
 
 		expect(await postDelete(userB)).toMatchObject({ status: 404 });
-		await expect(postDelete(userA)).rejects.toMatchObject({ status: 303, location: '/bills' });
+		await expect(postDelete(userA)).rejects.toMatchObject({ status: 303, location: '/bills?month=2026-09' });
 		expect(await db.select().from(bills).where(eq(bills.id, bill.id))).toHaveLength(0);
 		expect(await db.select().from(billPayments).where(eq(billPayments.billId, bill.id))).toHaveLength(0);
 		expect(await db.select({ id: transactions.id, billId: transactions.billId }).from(transactions).where(eq(transactions.id, transaction.id)))
