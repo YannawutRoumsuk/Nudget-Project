@@ -99,11 +99,11 @@ export async function deleteBill(id: number, userId: number): Promise<boolean> {
 	return deleted.length > 0;
 }
 
-export async function markBillPaid(id: number, userId: number, reference = new Date(), executor?: DbExecutor): Promise<{ bill: Bill; transactionId: number | null; existed: boolean } | null> {
+export async function markBillPaid(id: number, userId: number, reference = new Date(), executor?: DbExecutor, periodReference = reference): Promise<{ bill: Bill; transactionId: number | null; existed: boolean } | null> {
 	const mark = async (executor: DbExecutor) => {
 		const [bill] = await executor.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);
 		if (!bill) return null;
-		const period = billPeriod(bill, reference);
+		const period = billPeriod(bill, periodReference);
 		const [existing] = await executor
 			.select()
 			.from(billPayments)
@@ -130,11 +130,11 @@ export async function markBillPaid(id: number, userId: number, reference = new D
 	return executor ? mark(executor) : db.transaction(mark);
 }
 
-export async function unmarkBillPaid(id: number, userId: number, reference = new Date()): Promise<boolean> {
+export async function unmarkBillPaid(id: number, userId: number, reference = new Date(), periodReference = reference): Promise<boolean> {
 	return db.transaction(async (executor) => {
 		const [bill] = await executor.select().from(bills).where(and(eq(bills.id, id), eq(bills.userId, userId))).limit(1);
 		if (!bill) return false;
-		const period = billPeriod(bill, reference);
+		const period = billPeriod(bill, periodReference);
 		const [payment] = await executor
 			.delete(billPayments)
 			.where(and(eq(billPayments.billId, id), eq(billPayments.period, period)))
